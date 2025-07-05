@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react'; // 1. Import useCallback
 import axios from 'axios';
 import { useParams, Link } from 'react-router-dom';
 
@@ -12,11 +12,10 @@ function ProjectDetail() {
     const [message, setMessage] = useState('');
     const { id } = useParams();
 
-    useEffect(() => {
-        fetchProjectDetails();
-    }, [id]);
-
-    const fetchProjectDetails = async () => {
+    // 2. Opakuj funkcję w useCallback
+    // Zapewnia to, że funkcja nie jest tworzona na nowo przy każdym renderze,
+    // chyba że jej zależności (tutaj 'id') się zmienią.
+    const fetchProjectDetails = useCallback(async () => {
         try {
             const res = await axios.get(`${API_URL}/projects/${id}`);
             setProject(res.data.project);
@@ -24,7 +23,11 @@ function ProjectDetail() {
         } catch (error) {
             console.error('Error fetching project details:', error);
         }
-    };
+    }, [id]); // Zależnością jest 'id', bo zapytanie API od niego zależy
+
+    useEffect(() => {
+        fetchProjectDetails();
+    }, [fetchProjectDetails]); // 3. Dodaj fetchProjectDetails do tablicy zależności
 
     const handleFileChange = (e) => {
         setSelectedFile(e.target.files[0]);
@@ -48,7 +51,8 @@ function ProjectDetail() {
             });
             setMessage(res.data);
             setSelectedFile(null);
-            // Optionally, refresh project details to update keyword counts
+            // Po udanym wgraniu, odśwież dane
+            fetchProjectDetails();
         } catch (error) {
             console.error('Error uploading keywords:', error);
             setMessage('Error uploading file.');
