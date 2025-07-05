@@ -1,0 +1,15 @@
+
+{
+  "name": "contentflow-ai",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "start": "npm start --workspace=backend",
+    "dev": "npm run dev --workspace=backend & npm start --workspace=frontend",
+    "heroku-postbuild": "npm install --workspace=backend && npm install --workspace=frontend && npm run build --workspace=frontend"
+  }
+}
