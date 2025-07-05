@@ -1,9 +1,9 @@
 
 const express = require('express');
-const { runContentFlow } = require('../services/cronWorker');
+const { planDailyPosts, executeDuePost } = require('../services/cronWorker');
 const router = express.Router();
 
-// Middleware to protect the cron endpoint
+// Middleware to protect the cron endpoints
 const checkCronSecret = (req, res, next) => {
     const secret = req.header('X-Cron-Secret');
     if (secret === process.env.CRON_SECRET_KEY) {
@@ -13,17 +13,20 @@ const checkCronSecret = (req, res, next) => {
     }
 };
 
-router.post('/run', checkCronSecret, async (req, res) => {
-    console.log('Cron job triggered via webhook.');
-    try {
-        // We run this asynchronously and immediately return a response
-        // to prevent the cron service from timing out.
-        runContentFlow();
-        res.status(202).send('ContentFlow process started.');
-    } catch (error) {
-        console.error('Failed to start ContentFlow process:', error);
-        res.status(500).send('Error starting cron job.');
-    }
+// Endpoint for the PLANNER cron job (runs once a day)
+router.post('/plan', checkCronSecret, (req, res) => {
+    console.log('PLANNER cron job triggered.');
+    // Run in background and respond immediately
+    planDailyPosts();
+    res.status(202).send('Daily post planning process started.');
+});
+
+// Endpoint for the EXECUTOR cron job (runs every few minutes)
+router.post('/execute', checkCronSecret, (req, res) => {
+    console.log('EXECUTOR cron job triggered.');
+    // Run in background and respond immediately
+    executeDuePost();
+    res.status(202).send('Post execution process started.');
 });
 
 module.exports = router;

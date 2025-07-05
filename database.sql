@@ -1,36 +1,21 @@
 
--- Table to store WordPress projects
-CREATE TABLE projects (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    wp_url VARCHAR(255) NOT NULL,
-    wp_user VARCHAR(255) NOT NULL,
-    wp_password TEXT NOT NULL, -- This is the Application Password
-    min_posts_per_day INT DEFAULT 1,
-    max_posts_per_day INT DEFAULT 3,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
+-- This file should be appended to your existing database.sql
+-- or run on your database to add the new scheduling functionality.
 
--- Table to store keywords for each project
-CREATE TABLE keywords (
-    id SERIAL PRIMARY KEY,
-    project_id INT NOT NULL,
-    keyword TEXT NOT NULL,
-    is_used BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
-);
+-- New table for scheduling posts
+CREATE TYPE post_status AS ENUM ('pending', 'processing', 'completed', 'failed');
 
--- Table to log published articles
-CREATE TABLE articles (
+CREATE TABLE scheduled_posts (
     id SERIAL PRIMARY KEY,
     project_id INT NOT NULL,
     keyword_id INT NOT NULL,
-    wp_post_id INT NOT NULL,
-    post_url TEXT NOT NULL,
-    title TEXT NOT NULL,
-    published_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    publish_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    status post_status DEFAULT 'pending',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    error_message TEXT,
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-    FOREIGN KEY (keyword_id) REFERENCES keywords(id)
+    FOREIGN KEY (keyword_id) REFERENCES keywords(id) ON DELETE CASCADE
 );
+
+-- Add an index for faster lookups by the executor
+CREATE INDEX idx_scheduled_posts_pending ON scheduled_posts (publish_at) WHERE status = 'pending';
