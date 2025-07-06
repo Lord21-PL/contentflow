@@ -3,10 +3,12 @@ const express = require('express');
 const multer = require('multer');
 const db = require('../db');
 const router = express.Router();
+const fs = require('fs');
+const path = require('path');
 
 const upload = multer({ dest: 'uploads/' });
 
-// GET all projects and their articles
+// GET all projects
 router.get('/', async (req, res) => {
     try {
         const { rows } = await db.query('SELECT * FROM projects ORDER BY created_at DESC');
@@ -51,25 +53,45 @@ router.post('/', async (req, res) => {
 // POST keywords from a file
 router.post('/:id/keywords', upload.single('keywordsFile'), async (req, res) => {
     const { id } = req.params;
-    const fs = require('fs');
-    const path = require('path');
+
+    if (!req.file) {
+        return res.status(400).json({ message: 'No file uploaded.' });
+    }
+
+    const filePath = path.join(__dirname, '../../', req.file.path);
 
     try {
-        const filePath = path.join(__dirname, '../../', req.file.path);
         const fileContent = fs.readFileSync(filePath, 'utf8');
         const keywords = fileContent.split(/\r?\n/).filter(line => line.trim() !== '');
 
         let count = 0;
-        for (const keyword of keywords) {
-            await db.query('INSERT INTO keywords (project_id, keyword) VALUES ($1, $2)', [id, keyword.trim()]);
-            count++;
+        // Use a transaction to ensure all keywords are inserted or none are
+        const client = await db.getClient();
+        try {
+            await client.query('BEGIN');
+            for (const keyword of keywords) {
+                await client.query('INSERT INTO keywords (project_id, keyword) VALUES ($1, $2)', [id, keyword.trim()]);
+                count++;
+            }
+            await client.query('COMMIT');
+        } catch (e) {
+            await client.query('ROLLBACK');
+            throw e;
+        } finally {
+            client.release();
         }
 
-        fs.unlinkSync(filePath); // Clean up uploaded file
-        res.send(`${count} keywords uploaded successfully.`);
+        // POPRAWKA: Zawsze wysyłamy odpowiedź w formacie JSON
+        res.json({ message: `${count} keywords uploaded successfully.` });
+
     } catch (error) {
-        console.error(error);
-        res.status(500).send('Error uploading keywords.');
+        console.error('Error processing keywords file:', error);
+        res.status(500).json({ message: 'Error uploading keywords.' });
+    } finally {
+        // Zawsze usuwamy plik po operacji
+        fs.unlink(filePath, (err) => {
+            if (err) console.error("Error cleaning up uploaded file:", err);
+        });
     }
 });
 
@@ -77,20 +99,16 @@ router.post('/:id/keywords', upload.single('keywordsFile'), async (req, res) => 
 router.delete('/:id', async (req, res) => {
     const { id } = req.params;
     try {
-        // Dzięki 'ON DELETE CASCADE' w naszej definicji bazy danych,
-        // usunięcie projektu automatycznie usunie wszystkie powiązane z nim
-        // słowa kluczowe, artykuły i zaplanowane posty.
-        // To jest potęga dobrze zaprojektowanej bazy danych!
         const deleteOp = await db.query('DELETE FROM projects WHERE id = $1', [id]);
 
         if (deleteOp.rowCount === 0) {
-            return res.status(404).send('Project not found.');
+            return res.status(404).json({ message: 'Project not found.' });
         }
 
-        res.status(200).send({ message: 'Project and all associated data deleted successfully.' });
+        res.status(200).json({ message: 'Project and all associated data deleted successfully.' });
     } catch (error) {
         console.error('Error deleting project:', error);
-        res.status(500).send('Server error while deleting project.');
+        res.status(500).json({ message: 'Server error while deleting project.' });
     }
 });
 

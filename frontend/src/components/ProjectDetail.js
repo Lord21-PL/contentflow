@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import api from '../api';
@@ -38,18 +39,22 @@ function ProjectDetail() {
         formData.append('keywordsFile', selectedFile);
 
         try {
-            // POPRAWIONA LINIA: Usunęliśmy trzeci argument z ręcznym ustawianiem nagłówków.
+            // POPRAWKA: Usunęliśmy trzeci argument z ręcznym ustawianiem nagłówków.
             // Axios sam ustawi poprawny Content-Type dla FormData.
             const res = await api.post(`/projects/${id}/keywords`, formData);
-            
-            setMessage(res.data.message || 'Keywords uploaded successfully.'); // Ulepszony komunikat
+
+            // POPRAWKA: Bezpiecznie odczytujemy wiadomość z odpowiedzi JSON
+            setMessage(res.data.message);
+
             setSelectedFile(null);
             // Resetujemy pole input pliku, aby można było wgrać ten sam plik ponownie
             e.target.reset(); 
-            fetchProjectDetails();
+            // Odświeżamy listę, aby zobaczyć nowe dane (w przyszłości np. licznik słów kluczowych)
+            // fetchProjectDetails(); 
         } catch (error) {
+            const errorMsg = error.response?.data?.message || 'Error uploading file.';
+            setMessage(errorMsg);
             console.error('Error uploading keywords:', error);
-            setMessage('Error uploading file.');
         }
     };
 
