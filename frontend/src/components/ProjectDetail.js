@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import api from '../api';
@@ -6,7 +5,6 @@ import api from '../api';
 function ProjectDetail() {
     const [project, setProject] = useState(null);
     const [articles, setArticles] = useState([]);
-    const [selectedFile, setSelectedFile] = useState(null);
     const [message, setMessage] = useState('');
     const { id } = useParams();
 
@@ -24,33 +22,25 @@ function ProjectDetail() {
         fetchProjectDetails();
     }, [fetchProjectDetails]);
 
-    const handleFileChange = (e) => {
-        setSelectedFile(e.target.files[0]);
-    };
-
     const handleKeywordUpload = async (e) => {
         e.preventDefault();
-        if (!selectedFile) {
+        setMessage('');
+        
+        // UPROSZCZONA I BARDZIEJ NIEZAWODNA LOGIKA:
+        // Tworzymy FormData bezpośrednio z elementu formularza.
+        // To automatycznie pobierze plik z inputu, który ma poprawny atrybut 'name'.
+        const formData = new FormData(e.target);
+
+        // Sprawdzamy, czy plik został faktycznie wybrany
+        if (!formData.get('keywordsFile') || formData.get('keywordsFile').size === 0) {
             setMessage('Please select a file first.');
             return;
         }
 
-        const formData = new FormData();
-        formData.append('keywordsFile', selectedFile);
-
         try {
-            // POPRAWKA: Usunęliśmy trzeci argument z ręcznym ustawianiem nagłówków.
-            // Axios sam ustawi poprawny Content-Type dla FormData.
             const res = await api.post(`/projects/${id}/keywords`, formData);
-
-            // POPRAWKA: Bezpiecznie odczytujemy wiadomość z odpowiedzi JSON
             setMessage(res.data.message);
-
-            setSelectedFile(null);
-            // Resetujemy pole input pliku, aby można było wgrać ten sam plik ponownie
-            e.target.reset(); 
-            // Odświeżamy listę, aby zobaczyć nowe dane (w przyszłości np. licznik słów kluczowych)
-            // fetchProjectDetails(); 
+            e.target.reset(); // Czyścimy formularz po sukcesie
         } catch (error) {
             const errorMsg = error.response?.data?.message || 'Error uploading file.';
             setMessage(errorMsg);
@@ -75,7 +65,8 @@ function ProjectDetail() {
                         <p>Upload a .txt or .csv file with one keyword per line.</p>
                         <form onSubmit={handleKeywordUpload}>
                             <div className="form-group">
-                                <input type="file" onChange={handleFileChange} accept=".txt,.csv" />
+                                {/* KRYTYCZNA POPRAWKA: Dodany atrybut name="keywordsFile" */}
+                                <input type="file" name="keywordsFile" accept=".txt,.csv" />
                             </div>
                             <button type="submit" className="btn btn-primary">Upload</button>
                         </form>
