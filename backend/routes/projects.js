@@ -1,12 +1,15 @@
-
 const express = require('express');
 const multer = require('multer');
 const db = require('../db');
 const router = express.Router();
 const fs = require('fs');
 const path = require('path');
+const os = require('os'); // <-- NOWY IMPORT
 
-const upload = multer({ dest: 'uploads/' });
+// POPRAWIONA KONFIGURACJA MULTERA
+// Zamiast tworzyć folder 'uploads', używamy systemowego folderu tymczasowego,
+// który zawsze istnieje i jest zapisywalny w środowiskach chmurowych.
+const upload = multer({ dest: os.tmpdir() });
 
 // GET all projects
 router.get('/', async (req, res) => {
@@ -53,19 +56,19 @@ router.post('/', async (req, res) => {
 // POST keywords from a file
 router.post('/:id/keywords', upload.single('keywordsFile'), async (req, res) => {
     const { id } = req.params;
-
+    
     if (!req.file) {
         return res.status(400).json({ message: 'No file uploaded.' });
     }
 
-    const filePath = path.join(__dirname, '../../', req.file.path);
+    // Ścieżka do pliku jest teraz w folderze tymczasowym, ale kod pozostaje ten sam
+    const filePath = req.file.path;
 
     try {
         const fileContent = fs.readFileSync(filePath, 'utf8');
-        const keywords = fileContent.split(/\r?\n/).filter(line => line.trim() !== '');
+        const keywords = fileContent.split(/\\r?\\n/).filter(line => line.trim() !== '');
 
         let count = 0;
-        // Use a transaction to ensure all keywords are inserted or none are
         const client = await db.getClient();
         try {
             await client.query('BEGIN');
@@ -81,16 +84,15 @@ router.post('/:id/keywords', upload.single('keywordsFile'), async (req, res) => 
             client.release();
         }
 
-        // POPRAWKA: Zawsze wysyłamy odpowiedź w formacie JSON
         res.json({ message: `${count} keywords uploaded successfully.` });
 
     } catch (error) {
         console.error('Error processing keywords file:', error);
-        res.status(500).json({ message: 'Error uploading keywords.' });
+        res.status(500).json({ message: 'Error processing keywords file.' });
     } finally {
-        // Zawsze usuwamy plik po operacji
+        // Zawsze usuwamy plik tymczasowy po operacji
         fs.unlink(filePath, (err) => {
-            if (err) console.error("Error cleaning up uploaded file:", err);
+            if (err) console.error("Error cleaning up temp file:", err);
         });
     }
 });
