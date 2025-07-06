@@ -1,14 +1,12 @@
+
 const express = require('express');
 const multer = require('multer');
 const db = require('../db');
 const router = express.Router();
 const fs = require('fs');
 const path = require('path');
-const os = require('os'); // <-- NOWY IMPORT
+const os = require('os');
 
-// POPRAWIONA KONFIGURACJA MULTERA
-// Zamiast tworzyć folder 'uploads', używamy systemowego folderu tymczasowego,
-// który zawsze istnieje i jest zapisywalny w środowiskach chmurowych.
 const upload = multer({ dest: os.tmpdir() });
 
 // GET all projects
@@ -22,18 +20,42 @@ router.get('/', async (req, res) => {
     }
 });
 
-// GET a single project by ID with its articles
+// GET a single project by ID with its articles AND scheduled posts
 router.get('/:id', async (req, res) => {
     const { id } = req.params;
     try {
+        // Fetch project details
         const projectRes = await db.query('SELECT * FROM projects WHERE id = $1', [id]);
         if (projectRes.rows.length === 0) {
             return res.status(404).send('Project not found');
         }
+
+        // Fetch published articles
         const articlesRes = await db.query('SELECT * FROM articles WHERE project_id = $1 ORDER BY published_at DESC', [id]);
-        res.json({ project: projectRes.rows[0], articles: articlesRes.rows });
+
+        // NEW: Fetch scheduled posts with keyword text
+        const scheduledPostsRes = await db.query(
+            `SELECT
+                sp.id,
+                sp.publish_at,
+                sp.status,
+                k.keyword
+             FROM scheduled_posts sp
+             JOIN keywords k ON sp.keyword_id = k.id
+             WHERE sp.project_id = $1
+             ORDER BY sp.publish_at ASC`,
+            [id]
+        );
+
+        // Send all data in one response
+        res.json({
+            project: projectRes.rows[0],
+            articles: articlesRes.rows,
+            scheduledPosts: scheduledPostsRes.rows // NEW
+        });
+
     } catch (error) {
-        console.error(error);
+        console.error('Error fetching project details:', error);
         res.status(500).send('Server error');
     }
 });
@@ -56,17 +78,16 @@ router.post('/', async (req, res) => {
 // POST keywords from a file
 router.post('/:id/keywords', upload.single('keywordsFile'), async (req, res) => {
     const { id } = req.params;
-    
+
     if (!req.file) {
         return res.status(400).json({ message: 'No file uploaded.' });
     }
 
-    // Ścieżka do pliku jest teraz w folderze tymczasowym, ale kod pozostaje ten sam
     const filePath = req.file.path;
 
     try {
         const fileContent = fs.readFileSync(filePath, 'utf8');
-        const keywords = fileContent.split(/\\r?\\n/).filter(line => line.trim() !== '');
+        const keywords = fileContent.split(/\r?\n/).filter(line => line.trim() !== '');
 
         let count = 0;
         const client = await db.getClient();
@@ -90,7 +111,6 @@ router.post('/:id/keywords', upload.single('keywordsFile'), async (req, res) => 
         console.error('Error processing keywords file:', error);
         res.status(500).json({ message: 'Error processing keywords file.' });
     } finally {
-        // Zawsze usuwamy plik tymczasowy po operacji
         fs.unlink(filePath, (err) => {
             if (err) console.error("Error cleaning up temp file:", err);
         });
