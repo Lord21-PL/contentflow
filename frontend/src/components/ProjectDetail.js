@@ -1,9 +1,6 @@
-
-import React, { useState, useEffect, useCallback } from 'react'; // 1. Import useCallback
-import axios from 'axios';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-
-const API_URL = process.env.REACT_APP_API_URL || '/api';
+import api from '../api';
 
 function ProjectDetail() {
     const [project, setProject] = useState(null);
@@ -12,22 +9,19 @@ function ProjectDetail() {
     const [message, setMessage] = useState('');
     const { id } = useParams();
 
-    // 2. Opakuj funkcję w useCallback
-    // Zapewnia to, że funkcja nie jest tworzona na nowo przy każdym renderze,
-    // chyba że jej zależności (tutaj 'id') się zmienią.
     const fetchProjectDetails = useCallback(async () => {
         try {
-            const res = await axios.get(`${API_URL}/projects/${id}`);
+            const res = await api.get(`/projects/${id}`);
             setProject(res.data.project);
             setArticles(res.data.articles);
         } catch (error) {
             console.error('Error fetching project details:', error);
         }
-    }, [id]); // Zależnością jest 'id', bo zapytanie API od niego zależy
+    }, [id]);
 
     useEffect(() => {
         fetchProjectDetails();
-    }, [fetchProjectDetails]); // 3. Dodaj fetchProjectDetails do tablicy zależności
+    }, [fetchProjectDetails]);
 
     const handleFileChange = (e) => {
         setSelectedFile(e.target.files[0]);
@@ -44,14 +38,14 @@ function ProjectDetail() {
         formData.append('keywordsFile', selectedFile);
 
         try {
-            const res = await axios.post(`${API_URL}/projects/${id}/keywords`, formData, {
-                headers: {
-                    'Content-Type': 'multipart/form-data',
-                },
-            });
-            setMessage(res.data);
+            // POPRAWIONA LINIA: Usunęliśmy trzeci argument z ręcznym ustawianiem nagłówków.
+            // Axios sam ustawi poprawny Content-Type dla FormData.
+            const res = await api.post(`/projects/${id}/keywords`, formData);
+            
+            setMessage(res.data.message || 'Keywords uploaded successfully.'); // Ulepszony komunikat
             setSelectedFile(null);
-            // Po udanym wgraniu, odśwież dane
+            // Resetujemy pole input pliku, aby można było wgrać ten sam plik ponownie
+            e.target.reset(); 
             fetchProjectDetails();
         } catch (error) {
             console.error('Error uploading keywords:', error);
