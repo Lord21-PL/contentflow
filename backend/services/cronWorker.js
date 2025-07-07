@@ -92,7 +92,7 @@ async function runExecutor() {
 
         if (res.rows.length === 0) {
             console.log('[Executor] No pending jobs to process at this time.');
-            return; // Zwróć, jeśli nie ma pracy, ale nie kończ puli jeszcze
+            return;
         }
 
         console.log(`[Executor] Found ${res.rows.length} jobs to process.`);
@@ -105,16 +105,17 @@ async function runExecutor() {
     } finally {
         client.release();
         // =================================================================
-        // WAŻNA ZMIANA: Zamykamy pulę połączeń na samym końcu,
-        // aby skrypt mógł się poprawnie zakończyć.
+        // USUWAMY TĘ LINIĘ:
+        // await pool.end(); // Ta linia zamykała pulę dla całej aplikacji!
         // =================================================================
-        await pool.end();
-        console.log('[Executor] Cron worker finished and pool closed.');
     }
 }
 
-runExecutor().catch(err => {
+// Zmieniamy sposób wywołania, aby proces zakończył się naturalnie
+runExecutor().then(() => {
+    console.log('[Executor] Cron worker finished its run.');
+    // Nie zamykamy puli, pozwalamy procesowi się zakończyć
+}).catch(err => {
     console.error("A critical error occurred in the cron worker:", err);
-    pool.end(); // Upewnij się, że pula jest zamykana nawet przy krytycznym błędzie
-    process.exit(1);
+    process.exit(1); // Zakończ z błędem, jeśli coś poszło bardzo nie tak
 });
