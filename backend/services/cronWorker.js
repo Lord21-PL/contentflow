@@ -24,12 +24,8 @@ async function processJob(job) {
         const prompt = `Napisz artykuł na bloga na temat: "${job.keyword}". Artykuł powinien być zoptymalizowany pod SEO, mieć co najmniej 800 słów, zawierać nagłówki H2 i H3. Tytuł artykułu powinien być chwytliwy i zawierać słowo kluczowe. Artykuł musi być w języku polskim. Na końcu artykułu nie dodawaj żadnego podsumowania ani stopki.`;
         const model = 'gpt-4-turbo-preview';
 
-        // =================================================================
-        // KRYTYCZNA ZMIANA: Logujemy pełny prompt tuż przed wysłaniem
-        // =================================================================
         console.log(`[Executor] Full prompt being sent to OpenAI for job ID ${job.id}:`);
         console.log(prompt);
-        // =================================================================
 
         const completion = await openai.chat.completions.create({
             model: model,
@@ -96,7 +92,7 @@ async function runExecutor() {
 
         if (res.rows.length === 0) {
             console.log('[Executor] No pending jobs to process at this time.');
-            return;
+            return; // Zwróć, jeśli nie ma pracy, ale nie kończ puli jeszcze
         }
 
         console.log(`[Executor] Found ${res.rows.length} jobs to process.`);
@@ -108,13 +104,17 @@ async function runExecutor() {
         console.error('[Executor] Error during cron worker execution:', error);
     } finally {
         client.release();
-        // W skrypcie, który działa w pętli, nie powinniśmy kończyć puli
-        // pool.end(); 
+        // =================================================================
+        // WAŻNA ZMIANA: Zamykamy pulę połączeń na samym końcu,
+        // aby skrypt mógł się poprawnie zakończyć.
+        // =================================================================
+        await pool.end();
+        console.log('[Executor] Cron worker finished and pool closed.');
     }
 }
 
-// Uruchamiamy główną funkcję
 runExecutor().catch(err => {
     console.error("A critical error occurred in the cron worker:", err);
+    pool.end(); // Upewnij się, że pula jest zamykana nawet przy krytycznym błędzie
     process.exit(1);
 });
