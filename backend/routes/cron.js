@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { spawn } = require('child_process');
-const path = require('path'); // ZMIANA #1: Importujemy moduł 'path'
+const path = require('path');
 
 // Middleware do zabezpieczenia cron joba
 function checkCronSecret(req, res, next) {
@@ -66,17 +66,18 @@ router.post('/plan', checkCronSecret, async (req, res) => {
 });
 
 
-// NOWA TRASA #2: EXECUTOR (z poprawionym logowaniem)
+// TRASA #2: EXECUTOR (z ostatecznie poprawioną ścieżką)
 router.post('/execute', checkCronSecret, (req, res) => {
     console.log('[Executor Trigger] Received request to run the executor script.');
 
-    // ZMIANA #2: Budujemy pewną, absolutną ścieżkę do skryptu
-    const scriptPath = path.join(process.cwd(), 'backend', 'services', 'cronworker.js');
+    // =================================================================
+    // KRYTYCZNA POPRAWKA: Usuwamy 'backend' z łączenia ścieżki
+    // =================================================================
+    const scriptPath = path.join(process.cwd(), 'services', 'cronworker.js');
     console.log(`[Executor Trigger] Attempting to execute script at: ${scriptPath}`);
 
     const executorProcess = spawn('node', [scriptPath], {
         detached: true,
-        // ZMIANA #3: Zmieniamy 'ignore' na 'inherit', aby logi pojawiały się w głównym strumieniu
         stdio: 'inherit' 
     });
 
