@@ -29,10 +29,13 @@ async function runExecutor() {
         await client.query("UPDATE scheduled_posts SET status = 'processing' WHERE id = $1", [jobId]);
         await client.query('COMMIT');
 
-        // Krok 2: Pobierz pełne szczegóły zadania
+        // Krok 2: Pobierz szczegóły zadania (bez klucza API)
+        // =================================================================
+        // KRYTYCZNA POPRAWKA #1: Usuwamy nieistniejącą kolumnę 'openai_api_key' z zapytania
+        // =================================================================
         const fullJobDetailsResult = await client.query(`
             SELECT
-                p.wordpress_url, p.wordpress_user, p.wordpress_app_password, p.openai_api_key,
+                p.wp_url, p.wp_user, p.wp_password,
                 k.keyword
             FROM scheduled_posts sp
             JOIN projects p ON sp.project_id = p.id
@@ -41,9 +44,17 @@ async function runExecutor() {
         `, [jobId]);
         const jobDetails = fullJobDetailsResult.rows[0];
 
+        // =================================================================
+        // KRYTYCZNA POPRAWKA #2: Pobieramy klucz API ze zmiennych środowiskowych
+        // =================================================================
+        const apiKey = process.env.OPENAI_API_KEY;
+        if (!apiKey) {
+            throw new Error("Zmienna środowiskowa OPENAI_API_KEY nie jest ustawiona!");
+        }
+
         // Krok 3: Wygeneruj treść za pomocą OpenAI
         console.log(`[Executor] Generating content for keyword: "${jobDetails.keyword}"`);
-        const openai = new OpenAI({ apiKey: jobDetails.openai_api_key });
+        const openai = new OpenAI({ apiKey: apiKey });
         const completion = await openai.chat.completions.create({
             model: "gpt-4-turbo-preview",
             messages: [{ role: "user", content: `Napisz artykuł na bloga na temat: "${jobDetails.keyword}". Artykuł powinien być zoptymalizowany pod SEO, zawierać nagłówki i być gotowy do publikacji.` }],
@@ -52,9 +63,9 @@ async function runExecutor() {
         const articleTitle = jobDetails.keyword;
 
         // Krok 4: Opublikuj na WordPress
-        console.log(`[Executor] Publishing article "${articleTitle}" to ${jobDetails.wordpress_url}`);
-        const wpUrl = `${jobDetails.wordpress_url.replace(/\/$/, '')}/wp-json/wp/v2/posts`;
-        const credentials = Buffer.from(`${jobDetails.wordpress_user}:${jobDetails.wordpress_app_password}`).toString('base64');
+        console.log(`[Executor] Publishing article "${articleTitle}" to ${jobDetails.wp_url}`);
+        const wpUrl = `${jobDetails.wp_url.replace(/\/$/, '')}/wp-json/wp/v2/posts`;
+        const credentials = Buffer.from(`${jobDetails.wp_user}:${jobDetails.wp_password}`).toString('base64');
         
         const response = await axios.post(wpUrl, {
             title: articleTitle,
@@ -84,5 +95,4 @@ async function runExecutor() {
     }
 }
 
-// Eksportujemy naszą funkcję, aby mogła być używana przez inne pliki
 module.exports = { runExecutor };
