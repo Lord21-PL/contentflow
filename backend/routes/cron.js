@@ -1,8 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-const { spawn } = require('child_process');
-const path = require('path');
+// ZMIANA #1: Importujemy nową funkcję, a nie narzędzia do tworzenia klonów
+const { runExecutor } = require('../services/cronworker');
 
 // Middleware do zabezpieczenia cron joba
 function checkCronSecret(req, res, next) {
@@ -68,34 +68,19 @@ router.post('/plan', checkCronSecret, async (req, res) => {
 });
 
 
-// TRASA #2: EXECUTOR (z ostatecznym, niezawodnym uruchomieniem)
+// TRASA #2: EXECUTOR (nowa, niezawodna implementacja)
 router.post('/execute', checkCronSecret, (req, res) => {
-    console.log('[Executor Trigger] Received request to run the executor script.');
-    
-    const scriptDir = path.join(process.cwd(), 'backend', 'services');
-    const scriptName = 'cronworker.js';
+    console.log('[Executor Trigger] Received request. Starting worker logic in the background.');
 
-    console.log(`[Executor Trigger] Working Directory: ${scriptDir}`);
-    console.log(`[Executor Trigger] Script to run: ${scriptName}`);
-    console.log(`[Executor Trigger] Using Node executable at: ${process.execPath}`);
-
-    // =================================================================
-    // KRYTYCZNA POPRAWKA: Używamy process.execPath zamiast 'node'
-    // =================================================================
-    const executorProcess = spawn(process.execPath, [scriptName], {
-        cwd: scriptDir,
-        detached: true,
-        stdio: 'inherit' 
+    // ZMIANA #2: Po prostu wywołujemy funkcję. Nie używamy 'await',
+    // aby serwer mógł natychmiast odpowiedzieć, a funkcja działała w tle.
+    runExecutor().catch(err => {
+        // To złapie wszelkie nieobsłużone błędy z naszej funkcji
+        console.error('[Executor Trigger] The worker logic encountered an unhandled exception:', err);
     });
 
-    executorProcess.on('error', (err) => {
-        console.error('[Executor Trigger] Failed to start subprocess.', err);
-    });
-
-    executorProcess.unref();
-
-    res.status(202).send('Executor process started. Check Railway logs for details.');
+    // ZMIANA #3: Natychmiast wysyłamy odpowiedź, że zadanie zostało przyjęte.
+    res.status(202).send('Executor task accepted and is running in the background.');
 });
-
 
 module.exports = router;

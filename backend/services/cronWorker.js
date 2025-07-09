@@ -1,121 +1,88 @@
-const { Pool } = require('pg');
+const db = require('../db');
 const OpenAI = require('openai');
-
-const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: {
-        rejectUnauthorized: false
-    }
-});
-
-const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-});
-
-async function processJob(job) {
-    const client = await pool.connect();
-    try {
-        console.log(`[Executor] Processing job ID ${job.id} for keyword: "${job.keyword}"`);
-        await client.query('UPDATE scheduled_posts SET status = $1, updated_at = NOW() WHERE id = $2', ['processing', job.id]);
-
-        const projectResult = await client.query('SELECT * FROM projects WHERE id = $1', [job.project_id]);
-        const project = projectResult.rows[0];
-
-        const prompt = `Napisz artykuł na bloga na temat: "${job.keyword}". Artykuł powinien być zoptymalizowany pod SEO, mieć co najmniej 800 słów, zawierać nagłówki H2 i H3. Tytuł artykułu powinien być chwytliwy i zawierać słowo kluczowe. Artykuł musi być w języku polskim. Na końcu artykułu nie dodawaj żadnego podsumowania ani stopki.`;
-        const model = 'gpt-4-turbo-preview';
-
-        console.log(`[Executor] Full prompt being sent to OpenAI for job ID ${job.id}:`);
-        console.log(prompt);
-
-        const completion = await openai.chat.completions.create({
-            model: model,
-            messages: [{ role: 'user', content: prompt }],
-        });
-
-        const articleContent = completion.choices[0].message.content;
-        const articleTitleMatch = articleContent.match(/^(.*?)(\n|$)/);
-        const articleTitle = articleTitleMatch ? articleTitleMatch[1].replace(/#/g, '').trim() : job.keyword;
-        const articleBody = articleContent.substring(articleTitle.length).trim();
-
-        const authString = `${project.wp_user}:${project.wp_password}`;
-        const encodedAuth = Buffer.from(authString).toString('base64');
-
-        const response = await fetch(`${project.wp_url}/wp-json/wp/v2/posts`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Basic ${encodedAuth}`
-            },
-            body: JSON.stringify({
-                title: articleTitle,
-                content: articleBody,
-                status: 'publish'
-            })
-        });
-
-        if (!response.ok) {
-            const errorBody = await response.json();
-            throw new Error(`WordPress API Error: ${response.status} ${JSON.stringify(errorBody)}`);
-        }
-
-        const postData = await response.json();
-
-        await client.query('BEGIN');
-        await client.query('UPDATE scheduled_posts SET status = $1, updated_at = NOW() WHERE id = $2', ['completed', job.id]);
-        await client.query(
-            'INSERT INTO articles (project_id, title, content, post_url, published_at) VALUES ($1, $2, $3, $4, NOW())',
-            [job.project_id, articleTitle, articleBody, postData.link]
-        );
-        await client.query('COMMIT');
-
-        console.log(`[Executor] Successfully processed and published job ID ${job.id}. Post URL: ${postData.link}`);
-
-    } catch (error) {
-        console.error(`[Executor] Failed to process job ID ${job.id}:`, error);
-        await client.query('UPDATE scheduled_posts SET status = $1, updated_at = NOW() WHERE id = $2', ['failed', job.id]);
-    } finally {
-        client.release();
-    }
-}
+const axios = require('axios');
 
 async function runExecutor() {
-    console.log('[Executor] Cron worker started. Looking for pending jobs...');
-    const client = await pool.connect();
-    try {
-        const res = await client.query(
-            `SELECT sp.id, sp.project_id, sp.publish_at, k.keyword
-             FROM scheduled_posts sp
-             JOIN keywords k ON sp.keyword_id = k.id
-             WHERE sp.status = 'pending' AND sp.publish_at <= NOW()
-             LIMIT 5`
-        );
+    console.log('[Executor] Worker logic started. Looking for a job to process...');
+    const client = await db.getClient();
+    let jobId = null;
 
-        if (res.rows.length === 0) {
-            console.log('[Executor] No pending jobs to process at this time.');
+    try {
+        // Krok 1: Znajdź i zablokuj zadanie do wykonania
+        await client.query('BEGIN');
+        const jobResult = await client.query(`
+            SELECT id FROM scheduled_posts
+            WHERE status = 'pending' AND publish_at <= NOW()
+            ORDER BY publish_at
+            LIMIT 1
+            FOR UPDATE SKIP LOCKED
+        `);
+
+        if (jobResult.rows.length === 0) {
+            console.log('[Executor] No pending jobs found. Worker logic finished.');
+            await client.query('COMMIT');
             return;
         }
 
-        console.log(`[Executor] Found ${res.rows.length} jobs to process.`);
-        for (const job of res.rows) {
-            await processJob(job);
-        }
+        jobId = jobResult.rows[0].id;
+        console.log(`[Executor] Found job ID: ${jobId}. Locking and setting to 'processing'.`);
+        await client.query("UPDATE scheduled_posts SET status = 'processing' WHERE id = $1", [jobId]);
+        await client.query('COMMIT');
+
+        // Krok 2: Pobierz pełne szczegóły zadania
+        const fullJobDetailsResult = await client.query(`
+            SELECT
+                p.wordpress_url, p.wordpress_user, p.wordpress_app_password, p.openai_api_key,
+                k.keyword
+            FROM scheduled_posts sp
+            JOIN projects p ON sp.project_id = p.id
+            JOIN keywords k ON sp.keyword_id = k.id
+            WHERE sp.id = $1
+        `, [jobId]);
+        const jobDetails = fullJobDetailsResult.rows[0];
+
+        // Krok 3: Wygeneruj treść za pomocą OpenAI
+        console.log(`[Executor] Generating content for keyword: "${jobDetails.keyword}"`);
+        const openai = new OpenAI({ apiKey: jobDetails.openai_api_key });
+        const completion = await openai.chat.completions.create({
+            model: "gpt-4-turbo-preview",
+            messages: [{ role: "user", content: `Napisz artykuł na bloga na temat: "${jobDetails.keyword}". Artykuł powinien być zoptymalizowany pod SEO, zawierać nagłówki i być gotowy do publikacji.` }],
+        });
+        const articleContent = completion.choices[0].message.content;
+        const articleTitle = jobDetails.keyword;
+
+        // Krok 4: Opublikuj na WordPress
+        console.log(`[Executor] Publishing article "${articleTitle}" to ${jobDetails.wordpress_url}`);
+        const wpUrl = `${jobDetails.wordpress_url.replace(/\/$/, '')}/wp-json/wp/v2/posts`;
+        const credentials = Buffer.from(`${jobDetails.wordpress_user}:${jobDetails.wordpress_app_password}`).toString('base64');
+        
+        const response = await axios.post(wpUrl, {
+            title: articleTitle,
+            content: articleContent,
+            status: 'publish'
+        }, {
+            headers: { 'Authorization': `Basic ${credentials}`, 'Content-Type': 'application/json' }
+        });
+
+        const postUrl = response.data.link;
+        console.log(`[Executor] Successfully published post. URL: ${postUrl}`);
+
+        // Krok 5: Oznacz zadanie jako ukończone
+        await client.query("UPDATE scheduled_posts SET status = 'completed', wordpress_post_url = $1 WHERE id = $2", [postUrl, jobId]);
+        console.log(`[Executor] Job ID: ${jobId} marked as 'completed'.`);
 
     } catch (error) {
-        console.error('[Executor] Error during cron worker execution:', error);
+        console.error(`[Executor] CRITICAL ERROR processing job ID: ${jobId || 'UNKNOWN'}.`, error.response ? error.response.data : error);
+        if (jobId) {
+            const errorMessage = error.message + (error.response ? JSON.stringify(error.response.data) : '');
+            await client.query("UPDATE scheduled_posts SET status = 'failed', error_message = $1 WHERE id = $2", [errorMessage, jobId]);
+        }
+        await client.query('ROLLBACK').catch(rbError => console.error('Error during rollback:', rbError));
     } finally {
         client.release();
-        // =================================================================
-        // USUWAMY TĘ LINIĘ:
-        // await pool.end(); // Ta linia zamykała pulę dla całej aplikacji!
-        // =================================================================
+        console.log('[Executor] Worker logic finished its run.');
     }
 }
 
-// Zmieniamy sposób wywołania, aby proces zakończył się naturalnie
-runExecutor().then(() => {
-    console.log('[Executor] Cron worker finished its run.');
-    // Nie zamykamy puli, pozwalamy procesowi się zakończyć
-}).catch(err => {
-    console.error("A critical error occurred in the cron worker:", err);
-    process.exit(1); // Zakończ z błędem, jeśli coś poszło bardzo nie tak
-});
+// Eksportujemy naszą funkcję, aby mogła być używana przez inne pliki
+module.exports = { runExecutor };
