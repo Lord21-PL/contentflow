@@ -2,7 +2,6 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { spawn } = require('child_process');
-const path = require('path');
 
 // Middleware do zabezpieczenia cron joba
 function checkCronSecret(req, res, next) {
@@ -14,13 +13,14 @@ function checkCronSecret(req, res, next) {
     }
 }
 
-// ... (reszta funkcji, jak getRandomInt i trasa /plan, pozostaje bez zmian) ...
+// Funkcja pomocnicza do generowania losowej liczby w zakresie
 function getRandomInt(min, max) {
     min = Math.ceil(min);
     max = Math.floor(max);
     return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
+// TRASA #1: PLANNER (bez zmian)
 router.post('/plan', checkCronSecret, async (req, res) => {
     console.log('[Planner] Cron job started. Planning posts for all projects...');
     const client = await db.getClient();
@@ -66,14 +66,14 @@ router.post('/plan', checkCronSecret, async (req, res) => {
 });
 
 
-// TRASA #2: EXECUTOR (z ostatecznie poprawioną ścieżką)
+// TRASA #2: EXECUTOR (z ostatecznie poprawną i prostą ścieżką)
 router.post('/execute', checkCronSecret, (req, res) => {
     console.log('[Executor Trigger] Received request to run the executor script.');
 
     // =================================================================
-    // KRYTYCZNA POPRAWKA: Usuwamy 'backend' z łączenia ścieżki
+    // KRYTYCZNA POPRAWKA: Używamy prostej, względnej ścieżki od głównego katalogu projektu
     // =================================================================
-    const scriptPath = path.join(process.cwd(), 'services', 'cronworker.js');
+    const scriptPath = 'backend/services/cronworker.js';
     console.log(`[Executor Trigger] Attempting to execute script at: ${scriptPath}`);
 
     const executorProcess = spawn('node', [scriptPath], {
