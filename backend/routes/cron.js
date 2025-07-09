@@ -23,6 +23,7 @@ function getRandomInt(min, max) {
 
 // TRASA #1: PLANNER (bez zmian)
 router.post('/plan', checkCronSecret, async (req, res) => {
+    // ... (cały kod planera pozostaje bez zmian) ...
     console.log('[Planner] Cron job started. Planning posts for all projects...');
     const client = await db.getClient();
     try {
@@ -67,25 +68,21 @@ router.post('/plan', checkCronSecret, async (req, res) => {
 });
 
 
-// TRASA #2: EXECUTOR (z ostatecznym, poprawnym uruchomieniem)
+// TRASA #2: EXECUTOR (z ostatecznym, niezawodnym uruchomieniem)
 router.post('/execute', checkCronSecret, (req, res) => {
     console.log('[Executor Trigger] Received request to run the executor script.');
-
-    // =================================================================
-    // KRYTYCZNA POPRAWKA: Ustawiamy katalog roboczy (cwd) dla skryptu
-    // =================================================================
     
-    // 1. Budujemy absolutną ścieżkę do katalogu, gdzie leży nasz skrypt
     const scriptDir = path.join(process.cwd(), 'backend', 'services');
-    
-    // 2. Nazwa samego skryptu
     const scriptName = 'cronworker.js';
 
     console.log(`[Executor Trigger] Working Directory: ${scriptDir}`);
     console.log(`[Executor Trigger] Script to run: ${scriptName}`);
+    console.log(`[Executor Trigger] Using Node executable at: ${process.execPath}`);
 
-    const executorProcess = spawn('node', [scriptName], {
-        // 3. Ustawiamy 'cwd' - to jest klucz do sukcesu
+    // =================================================================
+    // KRYTYCZNA POPRAWKA: Używamy process.execPath zamiast 'node'
+    // =================================================================
+    const executorProcess = spawn(process.execPath, [scriptName], {
         cwd: scriptDir,
         detached: true,
         stdio: 'inherit' 
