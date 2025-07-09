@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { spawn } = require('child_process');
+const path = require('path');
 
 // Middleware do zabezpieczenia cron joba
 function checkCronSecret(req, res, next) {
@@ -66,17 +67,26 @@ router.post('/plan', checkCronSecret, async (req, res) => {
 });
 
 
-// TRASA #2: EXECUTOR (z ostatecznie poprawną i prostą ścieżką)
+// TRASA #2: EXECUTOR (z ostatecznym, poprawnym uruchomieniem)
 router.post('/execute', checkCronSecret, (req, res) => {
     console.log('[Executor Trigger] Received request to run the executor script.');
 
     // =================================================================
-    // KRYTYCZNA POPRAWKA: Używamy prostej, względnej ścieżki od głównego katalogu projektu
+    // KRYTYCZNA POPRAWKA: Ustawiamy katalog roboczy (cwd) dla skryptu
     // =================================================================
-    const scriptPath = 'backend/services/cronworker.js';
-    console.log(`[Executor Trigger] Attempting to execute script at: ${scriptPath}`);
+    
+    // 1. Budujemy absolutną ścieżkę do katalogu, gdzie leży nasz skrypt
+    const scriptDir = path.join(process.cwd(), 'backend', 'services');
+    
+    // 2. Nazwa samego skryptu
+    const scriptName = 'cronworker.js';
 
-    const executorProcess = spawn('node', [scriptPath], {
+    console.log(`[Executor Trigger] Working Directory: ${scriptDir}`);
+    console.log(`[Executor Trigger] Script to run: ${scriptName}`);
+
+    const executorProcess = spawn('node', [scriptName], {
+        // 3. Ustawiamy 'cwd' - to jest klucz do sukcesu
+        cwd: scriptDir,
         detached: true,
         stdio: 'inherit' 
     });
