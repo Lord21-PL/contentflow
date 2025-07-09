@@ -1,8 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-// ZMIANA #1: Importujemy nową funkcję, a nie narzędzia do tworzenia klonów
-const { runExecutor } = require('../services/cronworker');
+// =================================================================
+// KRYTYCZNA POPRAWKA: Poprawiamy wielkość liter w nazwie pliku
+// =================================================================
+const { runExecutor } = require('../services/cronWorker'); // Zmieniono 'cronworker' na 'cronWorker'
 
 // Middleware do zabezpieczenia cron joba
 function checkCronSecret(req, res, next) {
@@ -23,7 +25,6 @@ function getRandomInt(min, max) {
 
 // TRASA #1: PLANNER (bez zmian)
 router.post('/plan', checkCronSecret, async (req, res) => {
-    // ... (cały kod planera pozostaje bez zmian) ...
     console.log('[Planner] Cron job started. Planning posts for all projects...');
     const client = await db.getClient();
     try {
@@ -68,18 +69,14 @@ router.post('/plan', checkCronSecret, async (req, res) => {
 });
 
 
-// TRASA #2: EXECUTOR (nowa, niezawodna implementacja)
+// TRASA #2: EXECUTOR (bez zmian w logice, tylko w imporcie)
 router.post('/execute', checkCronSecret, (req, res) => {
     console.log('[Executor Trigger] Received request. Starting worker logic in the background.');
 
-    // ZMIANA #2: Po prostu wywołujemy funkcję. Nie używamy 'await',
-    // aby serwer mógł natychmiast odpowiedzieć, a funkcja działała w tle.
     runExecutor().catch(err => {
-        // To złapie wszelkie nieobsłużone błędy z naszej funkcji
         console.error('[Executor Trigger] The worker logic encountered an unhandled exception:', err);
     });
 
-    // ZMIANA #3: Natychmiast wysyłamy odpowiedź, że zadanie zostało przyjęte.
     res.status(202).send('Executor task accepted and is running in the background.');
 });
 
