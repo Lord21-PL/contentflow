@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-const { spawn } = require('child_process'); // Importujemy 'spawn'
+const { spawn } = require('child_process');
+const path = require('path'); // ZMIANA #1: Importujemy moduł 'path'
 
 // Middleware do zabezpieczenia cron joba
 function checkCronSecret(req, res, next) {
@@ -13,16 +14,13 @@ function checkCronSecret(req, res, next) {
     }
 }
 
-// Funkcja pomocnicza do generowania losowej liczby w zakresie
+// ... (reszta funkcji, jak getRandomInt i trasa /plan, pozostaje bez zmian) ...
 function getRandomInt(min, max) {
     min = Math.ceil(min);
     max = Math.floor(max);
     return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
-// =================================================================
-// TRASA #1: PLANNER (pozostaje bez zmian)
-// =================================================================
 router.post('/plan', checkCronSecret, async (req, res) => {
     console.log('[Planner] Cron job started. Planning posts for all projects...');
     const client = await db.getClient();
@@ -67,24 +65,28 @@ router.post('/plan', checkCronSecret, async (req, res) => {
     }
 });
 
-// =================================================================
-// NOWA TRASA #2: EXECUTOR (to jest nasz "przycisk")
-// =================================================================
+
+// NOWA TRASA #2: EXECUTOR (z poprawionym logowaniem)
 router.post('/execute', checkCronSecret, (req, res) => {
     console.log('[Executor Trigger] Received request to run the executor script.');
 
-    // Używamy 'spawn' do uruchomienia skryptu w tle.
-    // To zapobiega blokowaniu serwera i timeoutom.
-    const executorProcess = spawn('node', ['backend/services/cronworker.js'], {
+    // ZMIANA #2: Budujemy pewną, absolutną ścieżkę do skryptu
+    const scriptPath = path.join(process.cwd(), 'backend', 'services', 'cronworker.js');
+    console.log(`[Executor Trigger] Attempting to execute script at: ${scriptPath}`);
+
+    const executorProcess = spawn('node', [scriptPath], {
         detached: true,
-        stdio: 'ignore' // Logi z tego skryptu będą widoczne w logach Railway, a nie w odpowiedzi HTTP
+        // ZMIANA #3: Zmieniamy 'ignore' na 'inherit', aby logi pojawiały się w głównym strumieniu
+        stdio: 'inherit' 
     });
 
-    // Odłączamy proces dziecka, aby mógł żyć własnym życiem
+    executorProcess.on('error', (err) => {
+        console.error('[Executor Trigger] Failed to start subprocess.', err);
+    });
+
     executorProcess.unref();
 
-    // Natychmiast odpowiadamy, że przyjęliśmy zadanie do wykonania
-    res.status(202).send('Executor process started in the background.');
+    res.status(202).send('Executor process started. Check Railway logs for details.');
 });
 
 
