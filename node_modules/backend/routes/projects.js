@@ -7,7 +7,7 @@ const { Readable } = require('stream');
 
 const upload = multer({ storage: multer.memoryStorage() });
 
-// Istniejąca trasa: Pobieranie wszystkich projektów
+// ... (trasy GET /, POST / pozostają bez zmian)
 router.get('/', async (req, res) => {
     try {
         const result = await db.query('SELECT * FROM projects ORDER BY created_at DESC');
@@ -18,7 +18,6 @@ router.get('/', async (req, res) => {
     }
 });
 
-// Istniejąca trasa: Tworzenie nowego projektu
 router.post('/', async (req, res) => {
     const { name, wp_url, wp_user, wp_password, min_posts_per_day, max_posts_per_day } = req.body;
     try {
@@ -33,16 +32,36 @@ router.post('/', async (req, res) => {
     }
 });
 
-// Istniejąca trasa: Pobieranie szczegółów jednego projektu wraz z keywordami
+
+// =================================================================
+// ZMODYFIKOWANA TRASA: Pobieranie szczegółów projektu
+// =================================================================
 router.get('/:id', async (req, res) => {
     try {
+        // Pobierz dane projektu
         const projectResult = await db.query('SELECT * FROM projects WHERE id = $1', [req.params.id]);
         if (projectResult.rows.length === 0) {
             return res.status(404).send('Project not found');
         }
-        const keywordsResult = await db.query('SELECT * FROM keywords WHERE project_id = $1 ORDER BY id DESC', [req.params.id]);
         const project = projectResult.rows[0];
+
+        // Pobierz słowa kluczowe
+        const keywordsResult = await db.query('SELECT * FROM keywords WHERE project_id = $1 ORDER BY id DESC', [req.params.id]);
         project.keywords = keywordsResult.rows;
+
+        // =================================================================
+        // NOWA SEKCJA: Pobierz zaplanowane posty
+        // Łączymy z tabelą keywords, aby od razu mieć nazwę słowa kluczowego
+        // =================================================================
+        const scheduledPostsResult = await db.query(`
+            SELECT sp.*, k.keyword 
+            FROM scheduled_posts sp
+            JOIN keywords k ON sp.keyword_id = k.id
+            WHERE sp.project_id = $1 
+            ORDER BY sp.publish_at DESC
+        `, [req.params.id]);
+        project.scheduledPosts = scheduledPostsResult.rows; // Dodajemy posty do obiektu projektu
+
         res.json(project);
     } catch (error) {
         console.error(error);
@@ -50,7 +69,8 @@ router.get('/:id', async (req, res) => {
     }
 });
 
-// Istniejąca trasa: Upload pliku CSV z keywordami
+
+// ... (reszta tras: upload, delete keyword, post keyword pozostaje bez zmian)
 router.post('/:id/upload', upload.single('file'), async (req, res) => {
     const projectId = req.params.id;
     if (!req.file) {
@@ -84,9 +104,6 @@ router.post('/:id/upload', upload.single('file'), async (req, res) => {
     }
 });
 
-// =================================================================
-// NOWA TRASA: Usuwanie słowa kluczowego
-// =================================================================
 router.delete('/:projectId/keywords/:keywordId', async (req, res) => {
     const { projectId, keywordId } = req.params;
     try {
@@ -97,19 +114,16 @@ router.delete('/:projectId/keywords/:keywordId', async (req, res) => {
         if (deleteResult.rowCount === 0) {
             return res.status(404).send('Keyword not found or does not belong to this project.');
         }
-        res.status(204).send(); // 204 No Content - standardowa odpowiedź na udane usunięcie
+        res.status(204).send();
     } catch (error) {
         console.error('Error deleting keyword:', error);
         res.status(500).send('Server error');
     }
 });
 
-// =================================================================
-// NOWA TRASA: Dodawanie wielu słów kluczowych z textarea
-// =================================================================
 router.post('/:projectId/keywords', async (req, res) => {
     const { projectId } = req.params;
-    const { keywords } = req.body; // Oczekujemy tablicy stringów
+    const { keywords } = req.body;
 
     if (!keywords || !Array.isArray(keywords) || keywords.length === 0) {
         return res.status(400).send('Keywords array is required.');
