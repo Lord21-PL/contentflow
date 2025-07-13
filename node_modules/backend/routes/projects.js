@@ -7,7 +7,7 @@ const { Readable } = require('stream');
 
 const upload = multer({ storage: multer.memoryStorage() });
 
-// ... (trasy GET /, POST / pozostają bez zmian)
+// Pobieranie wszystkich projektów
 router.get('/', async (req, res) => {
     try {
         const result = await db.query('SELECT * FROM projects ORDER BY created_at DESC');
@@ -18,6 +18,7 @@ router.get('/', async (req, res) => {
     }
 });
 
+// Tworzenie nowego projektu
 router.post('/', async (req, res) => {
     const { name, wp_url, wp_user, wp_password, min_posts_per_day, max_posts_per_day } = req.body;
     try {
@@ -32,27 +33,18 @@ router.post('/', async (req, res) => {
     }
 });
 
-
-// =================================================================
-// ZMODYFIKOWANA TRASA: Pobieranie szczegółów projektu
-// =================================================================
+// Pobieranie szczegółów jednego projektu (wraz z keywordami i postami)
 router.get('/:id', async (req, res) => {
     try {
-        // Pobierz dane projektu
         const projectResult = await db.query('SELECT * FROM projects WHERE id = $1', [req.params.id]);
         if (projectResult.rows.length === 0) {
             return res.status(404).send('Project not found');
         }
         const project = projectResult.rows[0];
 
-        // Pobierz słowa kluczowe
         const keywordsResult = await db.query('SELECT * FROM keywords WHERE project_id = $1 ORDER BY id DESC', [req.params.id]);
         project.keywords = keywordsResult.rows;
 
-        // =================================================================
-        // NOWA SEKCJA: Pobierz zaplanowane posty
-        // Łączymy z tabelą keywords, aby od razu mieć nazwę słowa kluczowego
-        // =================================================================
         const scheduledPostsResult = await db.query(`
             SELECT sp.*, k.keyword 
             FROM scheduled_posts sp
@@ -60,7 +52,7 @@ router.get('/:id', async (req, res) => {
             WHERE sp.project_id = $1 
             ORDER BY sp.publish_at DESC
         `, [req.params.id]);
-        project.scheduledPosts = scheduledPostsResult.rows; // Dodajemy posty do obiektu projektu
+        project.scheduledPosts = scheduledPostsResult.rows;
 
         res.json(project);
     } catch (error) {
@@ -69,14 +61,12 @@ router.get('/:id', async (req, res) => {
     }
 });
 
-
-// ... (reszta tras: upload, delete keyword, post keyword pozostaje bez zmian)
+// Upload pliku CSV z keywordami
 router.post('/:id/upload', upload.single('file'), async (req, res) => {
     const projectId = req.params.id;
     if (!req.file) {
         return res.status(400).send('No file uploaded.');
     }
-
     const client = await db.getClient();
     try {
         await client.query('BEGIN');
@@ -99,11 +89,34 @@ router.post('/:id/upload', upload.single('file'), async (req, res) => {
         await client.query('ROLLBACK');
         console.error('Error processing CSV file:', error);
         res.status(500).send('Error processing file.');
-    } finally {
-        // Nie zwalniamy klienta tutaj, bo operacja jest asynchroniczna
     }
 });
 
+// =================================================================
+// NOWA TRASA: Masowe usuwanie słów kluczowych
+// =================================================================
+router.delete('/:projectId/keywords', async (req, res) => {
+    const { projectId } = req.params;
+    const { keywordIds } = req.body; // Oczekujemy tablicy ID
+
+    if (!keywordIds || !Array.isArray(keywordIds) || keywordIds.length === 0) {
+        return res.status(400).send('An array of keyword IDs is required.');
+    }
+
+    try {
+        const deleteResult = await db.query(
+            'DELETE FROM keywords WHERE id = ANY($1::int[]) AND project_id = $2',
+            [keywordIds, projectId]
+        );
+        console.log(`Deleted ${deleteResult.rowCount} keywords for project ${projectId}.`);
+        res.status(204).send();
+    } catch (error) {
+        console.error('Error bulk deleting keywords:', error);
+        res.status(500).send('Server error');
+    }
+});
+
+// Usuwanie pojedynczego słowa kluczowego
 router.delete('/:projectId/keywords/:keywordId', async (req, res) => {
     const { projectId, keywordId } = req.params;
     try {
@@ -121,14 +134,13 @@ router.delete('/:projectId/keywords/:keywordId', async (req, res) => {
     }
 });
 
+// Dodawanie wielu słów kluczowych
 router.post('/:projectId/keywords', async (req, res) => {
     const { projectId } = req.params;
     const { keywords } = req.body;
-
     if (!keywords || !Array.isArray(keywords) || keywords.length === 0) {
         return res.status(400).send('Keywords array is required.');
     }
-
     const client = await db.getClient();
     try {
         await client.query('BEGIN');
@@ -150,6 +162,5 @@ router.post('/:projectId/keywords', async (req, res) => {
         client.release();
     }
 });
-
 
 module.exports = router;
