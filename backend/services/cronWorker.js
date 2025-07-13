@@ -13,10 +13,6 @@ async function runExecutor() {
         // Krok 1: Znajdź i zablokuj zadanie do wykonania
         await client.query('BEGIN');
         
-        // =================================================================
-        // KRYTYCZNA ZMIANA #1: Zmieniamy logikę wyboru zadań
-        // Teraz bierzemy zadania 'pending' LUB 'failed' z liczbą prób < MAX_RETRIES
-        // =================================================================
         const jobResult = await client.query(`
             SELECT id FROM scheduled_posts
             WHERE (status = 'pending' AND publish_at <= NOW()) 
@@ -37,7 +33,7 @@ async function runExecutor() {
         await client.query("UPDATE scheduled_posts SET status = 'processing' WHERE id = $1", [jobId]);
         await client.query('COMMIT');
 
-        // Krok 2: Pobierz szczegóły zadania (bez zmian)
+        // Krok 2: Pobierz szczegóły zadania
         const fullJobDetailsResult = await client.query(`
             SELECT p.wp_url, p.wp_user, p.wp_password, k.keyword
             FROM scheduled_posts sp
@@ -51,10 +47,10 @@ async function runExecutor() {
         if (!apiKey) {
             throw new Error("Zmienna środowiskowa OPENAI_API_KEY nie jest ustawiona!");
         }
-
-        // Krok 3: Wygeneruj treść (bez zmian)
-        console.log(`[Executor] Generating content for keyword: "${jobDetails.keyword}"`);
         const openai = new OpenAI({ apiKey: apiKey });
+
+        // Krok 3: Wygeneruj treść
+        console.log(`[Executor] Generating content for keyword: "${jobDetails.keyword}"`);
         const completion = await openai.chat.completions.create({
             model: "gpt-4-turbo-preview",
             messages: [{ role: "user", content: `Napisz artykuł na bloga na temat: "${jobDetails.keyword}". Artykuł powinien być zoptymalizowany pod SEO, zawierać nagłówki i być gotowy do publikacji.` }],
@@ -62,31 +58,77 @@ async function runExecutor() {
         const articleContent = completion.choices[0].message.content;
         const articleTitle = jobDetails.keyword;
 
-        // Krok 4: Opublikuj na WordPress (bez zmian)
+        // =================================================================
+        // NOWY KROK 3.5: Generowanie i upload obrazka wyróżniającego
+        // =================================================================
+        let featuredMediaId = null;
+        try {
+            console.log(`[Executor] Generating featured image for: "${jobDetails.keyword}"`);
+            const imagePrompt = `Fotorealistyczne zdjęcie przedstawiające: ${jobDetails.keyword}. Styl jak w magazynie podróżniczym, żywe kolory, wysoka rozdzielczość, bez tekstu na obrazie.`;
+            
+            const imageResponse = await openai.images.generate({
+                model: "dall-e-3",
+                prompt: imagePrompt,
+                n: 1,
+                size: "1024x1024",
+                response_format: "url",
+            });
+            const imageUrl = imageResponse.data[0].url;
+            console.log(`[Executor] Image generated. URL: ${imageUrl}`);
+
+            // Pobierz obrazek do bufora
+            const imageBufferResponse = await axios.get(imageUrl, { responseType: 'arraybuffer' });
+            const imageBuffer = Buffer.from(imageBufferResponse.data, 'binary');
+
+            // Wgraj obrazek do biblioteki mediów WordPressa
+            console.log(`[Executor] Uploading image to WordPress media library...`);
+            const mediaUrl = `${jobDetails.wp_url.replace(/\/$/, '')}/wp-json/wp/v2/media`;
+            const credentials = Buffer.from(`${jobDetails.wp_user}:${jobDetails.wp_password}`).toString('base64');
+            
+            const mediaUploadResponse = await axios.post(mediaUrl, imageBuffer, {
+                headers: {
+                    'Authorization': `Basic ${credentials}`,
+                    'Content-Type': 'image/png',
+                    'Content-Disposition': `attachment; filename="${jobDetails.keyword.replace(/\s+/g, '-').toLowerCase()}.png"`
+                }
+            });
+
+            featuredMediaId = mediaUploadResponse.data.id;
+            console.log(`[Executor] Image uploaded successfully. Media ID: ${featuredMediaId}`);
+            
+            // Zapisz ID obrazka w naszej bazie
+            await client.query("UPDATE scheduled_posts SET wordpress_media_id = $1 WHERE id = $2", [featuredMediaId, jobId]);
+
+        } catch (imageError) {
+            console.error(`[Executor] Failed to generate or upload featured image for job ID: ${jobId}. Continuing without image.`, imageError.response ? imageError.response.data : imageError);
+        }
+
+        // Krok 4: Opublikuj na WordPress (z dołączeniem obrazka)
         console.log(`[Executor] Publishing article "${articleTitle}" to ${jobDetails.wp_url}`);
         const wpUrl = `${jobDetails.wp_url.replace(/\/$/, '')}/wp-json/wp/v2/posts`;
-        const credentials = Buffer.from(`${jobDetails.wp_user}:${jobDetails.wp_password}`).toString('base64');
-        
-        const response = await axios.post(wpUrl, {
+        const postPayload = {
             title: articleTitle,
             content: articleContent,
-            status: 'publish'
-        }, {
+            status: 'publish',
+        };
+
+        if (featuredMediaId) {
+            postPayload.featured_media = featuredMediaId;
+        }
+        
+        const credentials = Buffer.from(`${jobDetails.wp_user}:${jobDetails.wp_password}`).toString('base64');
+        const response = await axios.post(wpUrl, postPayload, {
             headers: { 'Authorization': `Basic ${credentials}`, 'Content-Type': 'application/json' }
         });
 
         const postUrl = response.data.link;
         console.log(`[Executor] Successfully published post. URL: ${postUrl}`);
 
-        // Krok 5: Oznacz zadanie jako ukończone (bez zmian)
+        // Krok 5: Oznacz zadanie jako ukończone
         await client.query("UPDATE scheduled_posts SET status = 'completed', wordpress_post_url = $1 WHERE id = $2", [postUrl, jobId]);
         console.log(`[Executor] Job ID: ${jobId} marked as 'completed'.`);
 
     } catch (error) {
-        // =================================================================
-        // KRYTYCZNA ZMIANA #2: Zmieniamy logikę obsługi błędów
-        // Teraz zwiększamy licznik prób przy każdym błędzie
-        // =================================================================
         console.error(`[Executor] CRITICAL ERROR processing job ID: ${jobId || 'UNKNOWN'}.`, error.response ? error.response.data : error);
         if (jobId) {
             const errorMessage = error.message + (error.response ? JSON.stringify(error.response.data) : '');

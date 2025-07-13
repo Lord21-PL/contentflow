@@ -1,137 +1,141 @@
-
 const express = require('express');
-const multer = require('multer');
-const db = require('../db');
 const router = express.Router();
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
+const db = require('../db');
+const multer = require('multer');
+const csv = require('csv-parser');
+const { Readable } = require('stream');
 
-const upload = multer({ dest: os.tmpdir() });
+const upload = multer({ storage: multer.memoryStorage() });
 
-// GET all projects
+// Istniejąca trasa: Pobieranie wszystkich projektów
 router.get('/', async (req, res) => {
     try {
-        const { rows } = await db.query('SELECT * FROM projects ORDER BY created_at DESC');
-        res.json(rows);
+        const result = await db.query('SELECT * FROM projects ORDER BY created_at DESC');
+        res.json(result.rows);
     } catch (error) {
         console.error(error);
         res.status(500).send('Server error');
     }
 });
 
-// GET a single project by ID with its articles AND scheduled posts
-router.get('/:id', async (req, res) => {
-    const { id } = req.params;
-    try {
-        // Fetch project details
-        const projectRes = await db.query('SELECT * FROM projects WHERE id = $1', [id]);
-        if (projectRes.rows.length === 0) {
-            return res.status(404).send('Project not found');
-        }
-
-        // Fetch published articles
-        const articlesRes = await db.query('SELECT * FROM articles WHERE project_id = $1 ORDER BY published_at DESC', [id]);
-
-        // NEW: Fetch scheduled posts with keyword text
-        const scheduledPostsRes = await db.query(
-            `SELECT
-                sp.id,
-                sp.publish_at,
-                sp.status,
-                k.keyword
-             FROM scheduled_posts sp
-             JOIN keywords k ON sp.keyword_id = k.id
-             WHERE sp.project_id = $1
-             ORDER BY sp.publish_at ASC`,
-            [id]
-        );
-
-        // Send all data in one response
-        res.json({
-            project: projectRes.rows[0],
-            articles: articlesRes.rows,
-            scheduledPosts: scheduledPostsRes.rows // NEW
-        });
-
-    } catch (error) {
-        console.error('Error fetching project details:', error);
-        res.status(500).send('Server error');
-    }
-});
-
-// POST a new project
+// Istniejąca trasa: Tworzenie nowego projektu
 router.post('/', async (req, res) => {
     const { name, wp_url, wp_user, wp_password, min_posts_per_day, max_posts_per_day } = req.body;
     try {
-        const { rows } = await db.query(
+        const result = await db.query(
             'INSERT INTO projects (name, wp_url, wp_user, wp_password, min_posts_per_day, max_posts_per_day) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
             [name, wp_url, wp_user, wp_password, min_posts_per_day, max_posts_per_day]
         );
-        res.status(201).json(rows[0]);
+        res.status(201).json(result.rows[0]);
     } catch (error) {
         console.error(error);
         res.status(500).send('Server error');
     }
 });
 
-// POST keywords from a file
-router.post('/:id/keywords', upload.single('keywordsFile'), async (req, res) => {
-    const { id } = req.params;
+// Istniejąca trasa: Pobieranie szczegółów jednego projektu wraz z keywordami
+router.get('/:id', async (req, res) => {
+    try {
+        const projectResult = await db.query('SELECT * FROM projects WHERE id = $1', [req.params.id]);
+        if (projectResult.rows.length === 0) {
+            return res.status(404).send('Project not found');
+        }
+        const keywordsResult = await db.query('SELECT * FROM keywords WHERE project_id = $1 ORDER BY id DESC', [req.params.id]);
+        const project = projectResult.rows[0];
+        project.keywords = keywordsResult.rows;
+        res.json(project);
+    } catch (error) {
+        console.error(error);
+        res.status(500).send('Server error');
+    }
+});
 
+// Istniejąca trasa: Upload pliku CSV z keywordami
+router.post('/:id/upload', upload.single('file'), async (req, res) => {
+    const projectId = req.params.id;
     if (!req.file) {
-        return res.status(400).json({ message: 'No file uploaded.' });
+        return res.status(400).send('No file uploaded.');
     }
 
-    const filePath = req.file.path;
-
+    const client = await db.getClient();
     try {
-        const fileContent = fs.readFileSync(filePath, 'utf8');
-        const keywords = fileContent.split(/\r?\n/).filter(line => line.trim() !== '');
-
-        let count = 0;
-        const client = await db.getClient();
-        try {
-            await client.query('BEGIN');
-            for (const keyword of keywords) {
-                await client.query('INSERT INTO keywords (project_id, keyword) VALUES ($1, $2)', [id, keyword.trim()]);
-                count++;
-            }
-            await client.query('COMMIT');
-        } catch (e) {
-            await client.query('ROLLBACK');
-            throw e;
-        } finally {
-            client.release();
-        }
-
-        res.json({ message: `${count} keywords uploaded successfully.` });
-
+        await client.query('BEGIN');
+        const stream = Readable.from(req.file.buffer.toString());
+        stream.pipe(csv({ headers: false }))
+            .on('data', async (row) => {
+                const keyword = row[0];
+                if (keyword) {
+                    await client.query(
+                        "INSERT INTO keywords (project_id, keyword, status) VALUES ($1, $2, 'pending')",
+                        [projectId, keyword.trim()]
+                    );
+                }
+            })
+            .on('end', async () => {
+                await client.query('COMMIT');
+                res.status(200).send('Keywords uploaded successfully.');
+            });
     } catch (error) {
-        console.error('Error processing keywords file:', error);
-        res.status(500).json({ message: 'Error processing keywords file.' });
+        await client.query('ROLLBACK');
+        console.error('Error processing CSV file:', error);
+        res.status(500).send('Error processing file.');
     } finally {
-        fs.unlink(filePath, (err) => {
-            if (err) console.error("Error cleaning up temp file:", err);
-        });
+        // Nie zwalniamy klienta tutaj, bo operacja jest asynchroniczna
     }
 });
 
-// DELETE a project by ID
-router.delete('/:id', async (req, res) => {
-    const { id } = req.params;
+// =================================================================
+// NOWA TRASA: Usuwanie słowa kluczowego
+// =================================================================
+router.delete('/:projectId/keywords/:keywordId', async (req, res) => {
+    const { projectId, keywordId } = req.params;
     try {
-        const deleteOp = await db.query('DELETE FROM projects WHERE id = $1', [id]);
-
-        if (deleteOp.rowCount === 0) {
-            return res.status(404).json({ message: 'Project not found.' });
+        const deleteResult = await db.query(
+            'DELETE FROM keywords WHERE id = $1 AND project_id = $2',
+            [keywordId, projectId]
+        );
+        if (deleteResult.rowCount === 0) {
+            return res.status(404).send('Keyword not found or does not belong to this project.');
         }
-
-        res.status(200).json({ message: 'Project and all associated data deleted successfully.' });
+        res.status(204).send(); // 204 No Content - standardowa odpowiedź na udane usunięcie
     } catch (error) {
-        console.error('Error deleting project:', error);
-        res.status(500).json({ message: 'Server error while deleting project.' });
+        console.error('Error deleting keyword:', error);
+        res.status(500).send('Server error');
     }
 });
+
+// =================================================================
+// NOWA TRASA: Dodawanie wielu słów kluczowych z textarea
+// =================================================================
+router.post('/:projectId/keywords', async (req, res) => {
+    const { projectId } = req.params;
+    const { keywords } = req.body; // Oczekujemy tablicy stringów
+
+    if (!keywords || !Array.isArray(keywords) || keywords.length === 0) {
+        return res.status(400).send('Keywords array is required.');
+    }
+
+    const client = await db.getClient();
+    try {
+        await client.query('BEGIN');
+        const newKeywords = [];
+        for (const keyword of keywords) {
+            const result = await client.query(
+                "INSERT INTO keywords (project_id, keyword, status) VALUES ($1, $2, 'pending') RETURNING *",
+                [projectId, keyword.trim()]
+            );
+            newKeywords.push(result.rows[0]);
+        }
+        await client.query('COMMIT');
+        res.status(201).json(newKeywords);
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Error adding keywords:', error);
+        res.status(500).send('Server error');
+    } finally {
+        client.release();
+    }
+});
+
 
 module.exports = router;
