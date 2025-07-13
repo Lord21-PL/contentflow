@@ -1,0 +1,11 @@
+# Ignoruj wszystkie foldery node_modules z lokalnego komputera  
+# Są one specyficzne dla systemu operacyjnego i nie powinny być kopiowane  
+node_modules  
+**/node_modules  
+  
+# Ignoruj pliki logów i zmienne środowiskowe  
+npm-debug.log  
+.env  
+  
+# Ignoruj folder .git  
+.git
