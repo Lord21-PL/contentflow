@@ -92,18 +92,37 @@ async function runExecutor() {
         try {
             console.log(`[Executor] Generating featured image for: "${jobDetails.keyword}"`);
             const imagePrompt = `Fotorealistyczne zdjęcie przedstawiające: ${jobDetails.keyword}. Styl jak w magazynie podróżniczym, żywe kolory, wysoka rozdzielczość, bez tekstu na obrazie.`;
+            
             const imageResponse = await openai.images.generate({ model: "dall-e-3", prompt: imagePrompt, n: 1, size: "1024x1024", response_format: "url" });
+            
             const imageUrl = imageResponse.data[0].url;
             const imageBufferResponse = await axios.get(imageUrl, { responseType: 'arraybuffer' });
             const imageBuffer = Buffer.from(imageBufferResponse.data, 'binary');
             const mediaUrl = `${jobDetails.wp_url.replace(/\/$/, '')}/wp-json/wp/v2/media`;
             const credentials = Buffer.from(`${jobDetails.wp_user}:${jobDetails.wp_password}`).toString('base64');
-            const mediaUploadResponse = await axios.post(mediaUrl, imageBuffer, { headers: { 'Authorization': `Basic ${credentials}`, 'Content-Type': 'image/png', 'Content-Disposition': `attachment; filename="${jobDetails.keyword.replace(/\s+/g, '-').toLowerCase()}.png"` } });
+
+            // =================================================================
+            // ZMIANA: Tworzymy "bezpieczną" nazwę pliku, usuwając niedozwolone znaki
+            // =================================================================
+            const safeFilename = jobDetails.keyword
+                .toLowerCase()
+                .replace(/\s+/g, '-') // Zamień spacje na myślniki
+                .replace(/[^a-z0-9-]/g, '') // Usuń wszystko, co nie jest literą, cyfrą lub myślnikiem
+                + '.png';
+
+            const mediaUploadResponse = await axios.post(mediaUrl, imageBuffer, { 
+                headers: { 
+                    'Authorization': `Basic ${credentials}`, 
+                    'Content-Type': 'image/png', 
+                    'Content-Disposition': `attachment; filename="${safeFilename}"` // Używamy bezpiecznej nazwy
+                } 
+            });
+
             featuredMediaId = mediaUploadResponse.data.id;
             console.log(`[Executor] Image uploaded successfully. Media ID: ${featuredMediaId}`);
             await client.query("UPDATE scheduled_posts SET wordpress_media_id = $1 WHERE id = $2", [featuredMediaId, jobId]);
         } catch (imageError) {
-            console.error(`[Executor] Failed to generate or upload featured image for job ID: ${jobId}. Continuing without image.`, imageError.response ? imageError.response.data : imageError);
+            console.error(`[Executor] Failed to generate or upload featured image for job ID: ${jobId}. Continuing without image.`, imageError);
         }
 
         const categories = await getWordPressCategories(jobDetails);
@@ -135,7 +154,7 @@ async function runExecutor() {
         console.log(`[Executor] Job ID: ${jobId} marked as 'completed'.`);
 
     } catch (error) {
-        console.error(`[Executor] CRITICAL ERROR processing job ID: ${jobId || 'UNKNOWN'}.`, error.response ? error.response.data : error);
+        console.error(`[Executor] CRITICAL ERROR processing job ID: ${jobId || 'UNKNOWN'}.`, error);
         if (jobId) {
             const errorMessage = error.message + (error.response ? JSON.stringify(error.response.data) : '');
             await client.query(`UPDATE scheduled_posts SET status = 'failed', error_message = $1, retry_count = retry_count + 1 WHERE id = $2`, [errorMessage, jobId]);
