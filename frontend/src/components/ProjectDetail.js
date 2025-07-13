@@ -8,21 +8,24 @@ function ProjectDetail() {
     const [selectedKeywords, setSelectedKeywords] = useState(new Set());
     const { id } = useParams();
 
-    const fetchProject = async () => {
-        try {
-            const response = await api.get(`/projects/${id}`);
-            if (response.data.keywords) {
-                response.data.keywords.sort((a, b) => b.id - a.id);
-            }
-            setProject(response.data);
-        } catch (error) {
-            console.error("Error fetching project details:", error);
-        }
-    };
-
+    // =================================================================
+    // POPRAWKA: Funkcja fetchProject jest teraz zdefiniowana wewnątrz useEffect
+    // =================================================================
     useEffect(() => {
+        const fetchProject = async () => {
+            try {
+                const response = await api.get(`/projects/${id}`);
+                if (response.data.keywords) {
+                    response.data.keywords.sort((a, b) => b.id - a.id);
+                }
+                setProject(response.data);
+            } catch (error) {
+                console.error("Error fetching project details:", error);
+            }
+        };
+
         fetchProject();
-    }, [id]);
+    }, [id]); // Teraz zależności są poprawne. useEffect zależy tylko od `id`.
 
     const handleKeywordSelection = (keywordId) => {
         setSelectedKeywords(prevSelected => {
@@ -47,7 +50,9 @@ function ProjectDetail() {
                     data: { keywordIds: Array.from(selectedKeywords) }
                 });
                 setSelectedKeywords(new Set());
-                fetchProject(); 
+                // Odświeżamy dane, pobierając je ponownie
+                const response = await api.get(`/projects/${id}`);
+                setProject(response.data);
             } catch (error) {
                 console.error("Error bulk deleting keywords:", error);
                 alert('Failed to delete keywords.');
@@ -65,7 +70,9 @@ function ProjectDetail() {
         try {
             await api.post(`/projects/${id}/keywords`, { keywords: keywordsArray });
             setNewKeywords('');
-            fetchProject();
+            // Odświeżamy dane, pobierając je ponownie
+            const response = await api.get(`/projects/${id}`);
+            setProject(response.data);
         } catch (error) {
             console.error("Error adding keywords:", error);
             alert('Failed to add keywords.');
