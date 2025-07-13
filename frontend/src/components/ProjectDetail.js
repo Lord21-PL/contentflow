@@ -8,9 +8,6 @@ function ProjectDetail() {
     const [selectedKeywords, setSelectedKeywords] = useState(new Set());
     const { id } = useParams();
 
-    // =================================================================
-    // POPRAWKA: Funkcja fetchProject jest teraz zdefiniowana wewnątrz useEffect
-    // =================================================================
     useEffect(() => {
         const fetchProject = async () => {
             try {
@@ -25,7 +22,7 @@ function ProjectDetail() {
         };
 
         fetchProject();
-    }, [id]); // Teraz zależności są poprawne. useEffect zależy tylko od `id`.
+    }, [id]);
 
     const handleKeywordSelection = (keywordId) => {
         setSelectedKeywords(prevSelected => {
@@ -39,6 +36,22 @@ function ProjectDetail() {
         });
     };
 
+    // =================================================================
+    // NOWA FUNKCJA: Obsługa zaznaczania/odznaczania wszystkich
+    // =================================================================
+    const handleSelectAll = () => {
+        const areAllSelected = project.keywords && project.keywords.length > 0 && selectedKeywords.size === project.keywords.length;
+
+        if (areAllSelected) {
+            // Jeśli wszystko jest zaznaczone, odznacz wszystko
+            setSelectedKeywords(new Set());
+        } else {
+            // W przeciwnym razie, zaznacz wszystko
+            const allKeywordIds = project.keywords.map(kw => kw.id);
+            setSelectedKeywords(new Set(allKeywordIds));
+        }
+    };
+
     const handleBulkDelete = async () => {
         if (selectedKeywords.size === 0) {
             alert('Please select keywords to delete.');
@@ -50,7 +63,6 @@ function ProjectDetail() {
                     data: { keywordIds: Array.from(selectedKeywords) }
                 });
                 setSelectedKeywords(new Set());
-                // Odświeżamy dane, pobierając je ponownie
                 const response = await api.get(`/projects/${id}`);
                 setProject(response.data);
             } catch (error) {
@@ -70,7 +82,6 @@ function ProjectDetail() {
         try {
             await api.post(`/projects/${id}/keywords`, { keywords: keywordsArray });
             setNewKeywords('');
-            // Odświeżamy dane, pobierając je ponownie
             const response = await api.get(`/projects/${id}`);
             setProject(response.data);
         } catch (error) {
@@ -90,6 +101,8 @@ function ProjectDetail() {
             default: return {};
         }
     };
+
+    const areAllKeywordsSelected = project.keywords && project.keywords.length > 0 && selectedKeywords.size === project.keywords.length;
 
     return (
         <div style={{ fontFamily: 'sans-serif', maxWidth: '960px', margin: 'auto', padding: '20px' }}>
@@ -115,6 +128,22 @@ function ProjectDetail() {
                         )}
                     </div>
                     <ul style={{ listStyle: 'none', padding: 0, maxHeight: '400px', overflowY: 'auto', border: '1px solid #eee' }}>
+                        {/* ================================================================= */}
+                        {/* NOWY ELEMENT: Nagłówek listy z checkboxem "Zaznacz wszystko"   */}
+                        {/* ================================================================= */}
+                        {project.keywords && project.keywords.length > 0 && (
+                             <li style={{ display: 'flex', alignItems: 'center', padding: '8px', borderBottom: '1px solid #ccc', background: '#f7f7f7', fontWeight: 'bold' }}>
+                                <input
+                                    type="checkbox"
+                                    checked={areAllKeywordsSelected}
+                                    onChange={handleSelectAll}
+                                    style={{ marginRight: '10px' }}
+                                    title="Select/Deselect All"
+                                />
+                                <span>Select All</span>
+                            </li>
+                        )}
+
                         {project.keywords && project.keywords.map(kw => (
                             <li key={kw.id} style={{ display: 'flex', alignItems: 'center', padding: '8px', borderBottom: '1px solid #eee' }}>
                                 <input type="checkbox" checked={selectedKeywords.has(kw.id)} onChange={() => handleKeywordSelection(kw.id)} style={{ marginRight: '10px' }} />
