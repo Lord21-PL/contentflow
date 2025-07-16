@@ -50,11 +50,20 @@ async function generateArticle(title, language) {
 
 async function generateFeaturedImage(articleTitle, language) {
   const prompt = `
-    Create a photorealistic, high-quality image that visually represents the theme of an article titled: \"${articleTitle}\".
-    The image should be visually appealing and suitable as a featured image for a blog post. Avoid text in the image.
-    Style: photorealistic, vibrant colors, professional photography.
-    Language for context: ${language}.
+    **Primary Goal:** Create a high-resolution, photorealistic image that looks like a professional photograph. It must be suitable as a featured image for a blog post titled: "${articleTitle}".
+
+    **Key Directives:**
+    - **Strictly No Text:** The image must not contain any letters, words, or text of any kind.
+    - **Realism is Crucial:** Avoid any styles that look like illustrations, animations, or digital art. The image should be indistinguishable from a real photo.
+    - **Composition:** Use principles of professional photography, such as the rule of thirds, leading lines, and natural lighting.
+    - **Color Palette:** Emphasize natural, vibrant colors that are true to life. Avoid oversaturation or artificial color grading.
+    - **Subject Focus:** The main subject should be clear, in sharp focus, and directly related to the article's theme.
+
+    **Context:**
+    - **Article Title:** "${articleTitle}"
+    - **Language for Context:** ${language}
   `;
+
 
   const response = await openai.images.generate({
     model: "dall-e-3",
