@@ -67,28 +67,31 @@ router.post('/:id/upload', upload.single('file'), async (req, res) => {
     if (!req.file) {
         return res.status(400).send('No file uploaded.');
     }
+
     const client = await db.getClient();
     try {
         await client.query('BEGIN');
-        const stream = Readable.from(req.file.buffer.toString());
-        stream.pipe(csv({ headers: false }))
-            .on('data', async (row) => {
-                const keyword = row[0];
-                if (keyword) {
-                    await client.query(
-                        "INSERT INTO keywords (project_id, keyword, status) VALUES ($1, $2, 'pending')",
-                        [projectId, keyword.trim()]
-                    );
-                }
-            })
-            .on('end', async () => {
-                await client.query('COMMIT');
-                res.status(200).send('Keywords uploaded successfully.');
-            });
+
+        const stream = Readable.from(req.file.buffer.toString()).pipe(csv({ headers: false }));
+
+        for await (const row of stream) {
+            const keyword = row[0];
+            if (keyword) {
+                await client.query(
+                    "INSERT INTO keywords (project_id, keyword, status) VALUES ($1, $2, 'pending')",
+                    [projectId, keyword.trim()]
+                );
+            }
+        }
+
+        await client.query('COMMIT');
+        res.status(200).send('Keywords uploaded successfully.');
     } catch (error) {
         await client.query('ROLLBACK');
         console.error('Error processing CSV file:', error);
         res.status(500).send('Error processing file.');
+    } finally {
+        client.release();
     }
 });
 
