@@ -1,29 +1,32 @@
-
-require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const path = require('path');
-
 const projectRoutes = require('./routes/projects');
-const cronRoutes = require('./routes/cron');
+const cronRoutes = require('./routes/cron'); // Importujemy nowe trasy
 
 const app = express();
 
-app.use(cors({ origin: process.env.FRONTEND_URL }));
-app.use(express.json());
+// Ustawienia CORS
+const corsOptions = {
+  origin: '*', // W środowisku produkcyjnym warto to zawęzić
+  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+  credentials: true,
+  optionsSuccessStatus: 204
+};
+app.use(cors(corsOptions));
 
-// API Routes
+// =================================================================
+// ZMIANA: Zwiększamy limit wielkości zapytania do 50mb
+// =================================================================
+app.use(express.json({ limit: '50mb' }));
+
+// Trasy API
 app.use('/api/projects', projectRoutes);
-app.use('/api/cron', cronRoutes);
+app.use('/api/cron', cronRoutes); // Rejestrujemy nowe trasy crona
 
-// Serve Frontend for Production
-if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(__dirname, '../frontend/build')));
-
-  app.get('*', (req, res) => {
-    res.sendFile(path.resolve(__dirname, '../frontend/build', 'index.html'));
-  });
-}
+// Podstawowa trasa
+app.get('/', (req, res) => {
+  res.send('ContentFlow AI Backend is running!');
+});
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {

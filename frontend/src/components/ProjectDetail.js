@@ -36,17 +36,12 @@ function ProjectDetail() {
         });
     };
 
-    // =================================================================
-    // NOWA FUNKCJA: Obsługa zaznaczania/odznaczania wszystkich
-    // =================================================================
     const handleSelectAll = () => {
         const areAllSelected = project.keywords && project.keywords.length > 0 && selectedKeywords.size === project.keywords.length;
 
         if (areAllSelected) {
-            // Jeśli wszystko jest zaznaczone, odznacz wszystko
             setSelectedKeywords(new Set());
         } else {
-            // W przeciwnym razie, zaznacz wszystko
             const allKeywordIds = project.keywords.map(kw => kw.id);
             setSelectedKeywords(new Set(allKeywordIds));
         }
@@ -105,12 +100,15 @@ function ProjectDetail() {
     const areAllKeywordsSelected = project.keywords && project.keywords.length > 0 && selectedKeywords.size === project.keywords.length;
 
     return (
-        <div style={{ fontFamily: 'sans-serif', maxWidth: '960px', margin: 'auto', padding: '20px' }}>
+        <div style={{ fontFamily: 'sans-serif', maxWidth: '1200px', margin: 'auto', padding: '20px' }}>
             <Link to="/">← Back to Dashboard</Link>
             <h2 style={{ borderBottom: '2px solid #eee', paddingBottom: '10px' }}>{project.name}</h2>
             
+            {/* ================================================================= */}
+            {/* ZMIANA: Zmienione proporcje flex, aby dać więcej miejsca liście   */}
+            {/* ================================================================= */}
             <div style={{ display: 'flex', gap: '40px', marginBottom: '20px' }}>
-                <div style={{ flex: 1 }}>
+                <div style={{ flex: '0 0 350px' }}>
                     <h3>Add New Keywords</h3>
                     <form onSubmit={handleAddKeywords}>
                         <textarea rows="10" style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }} value={newKeywords} onChange={(e) => setNewKeywords(e.target.value)} placeholder="Enter keywords, one per line..."></textarea>
@@ -118,7 +116,7 @@ function ProjectDetail() {
                         <button type="submit" style={{ marginTop: '10px', padding: '10px 15px' }}>Add Keywords</button>
                     </form>
                 </div>
-                <div style={{ flex: 2 }}>
+                <div style={{ flex: 1 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <h3>Keywords ({project.keywords && project.keywords.length})</h3>
                         {selectedKeywords.size > 0 && (
@@ -128,9 +126,6 @@ function ProjectDetail() {
                         )}
                     </div>
                     <ul style={{ listStyle: 'none', padding: 0, maxHeight: '400px', overflowY: 'auto', border: '1px solid #eee' }}>
-                        {/* ================================================================= */}
-                        {/* NOWY ELEMENT: Nagłówek listy z checkboxem "Zaznacz wszystko"   */}
-                        {/* ================================================================= */}
                         {project.keywords && project.keywords.length > 0 && (
                              <li style={{ display: 'flex', alignItems: 'center', padding: '8px', borderBottom: '1px solid #ccc', background: '#f7f7f7', fontWeight: 'bold' }}>
                                 <input
