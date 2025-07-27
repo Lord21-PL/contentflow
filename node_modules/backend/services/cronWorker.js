@@ -91,7 +91,7 @@ async function runExecutor() {
         let featuredMediaId = null;
         try {
             console.log(`[Executor] Generating featured image for: "${jobDetails.keyword}"`);
-            const imagePrompt = `Fotorealistyczne zdjęcie przedstawiające: ${jobDetails.keyword}. Styl jak w magazynie podróżniczym, żywe kolory, wysoka rozdzielczość, bez tekstu na obrazie.`;
+            const imagePrompt = `Profesjonalne, realistyczne zdjęcie przedstawiające: ${jobDetails.keyword}. Wykonane aparatem DSLR z obiektywem 50mm, f/1.8. Naturalne oświetlenie, realistyczna paleta kolorów, bez nadmiernej saturacji. Zdjęcie ma wyglądać autentycznie. Unikaj stylu cyfrowej ilustracji, malarstwa czy grafiki komputerowej.`;
             
             const imageResponse = await openai.images.generate({ model: "dall-e-3", prompt: imagePrompt, n: 1, size: "1024x1024", response_format: "url" });
             
