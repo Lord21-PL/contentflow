@@ -1,31 +1,42 @@
 const express = require('express');
-const cors = require('cors');
+const cors =require('cors');
+const path = require('path'); // Potrzebujemy modułu 'path'
 const projectRoutes = require('./routes/projects');
-const cronRoutes = require('./routes/cron'); // Importujemy nowe trasy
+const cronRoutes = require('./routes/cron');
 
 const app = express();
 
 // Ustawienia CORS
 const corsOptions = {
-  origin: '*', // W środowisku produkcyjnym warto to zawęzić
+  origin: '*',
   methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
   credentials: true,
   optionsSuccessStatus: 204
 };
 app.use(cors(corsOptions));
 
-// =================================================================
-// ZMIANA: Zwiększamy limit wielkości zapytania do 50mb
-// =================================================================
+// Zwiększamy limit wielkości zapytania
 app.use(express.json({ limit: '50mb' }));
 
 // Trasy API
 app.use('/api/projects', projectRoutes);
-app.use('/api/cron', cronRoutes); // Rejestrujemy nowe trasy crona
+app.use('/api/cron', cronRoutes);
 
-// Podstawowa trasa
-app.get('/', (req, res) => {
-  res.send('ContentFlow AI Backend is running!');
+// =================================================================
+// NOWA SEKCJA: Serwowanie statycznych plików frontendu
+// =================================================================
+// Wskazujemy Expressowi, gdzie szukać zbudowanych plików Reacta
+const buildPath = path.join(__dirname, '..', 'frontend', 'build');
+app.use(express.static(buildPath));
+
+// =================================================================
+// NOWA SEKCJA: Reguła "catch-all" dla React Routera
+// =================================================================
+// Ta reguła musi być PO definicji tras API.
+// Dla każdego innego zapytania GET, wysyłamy główny plik aplikacji React.
+// To pozwala na działanie routingu po stronie klienta (np. odświeżanie strony na /projects/1)
+app.get('*', (req, res) => {
+  res.sendFile(path.join(buildPath, 'index.html'));
 });
 
 const PORT = process.env.PORT || 3001;
