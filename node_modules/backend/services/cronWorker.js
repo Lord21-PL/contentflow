@@ -84,14 +84,36 @@ async function runExecutor() {
         const openai = new OpenAI({ apiKey: apiKey });
 
         console.log(`[Executor] Generating content for keyword: "${jobDetails.keyword}"`);
-        const completion = await openai.chat.completions.create({ model: "gpt-4-turbo-preview", messages: [{ role: "user", content: `Napisz artykuł na bloga na temat: "${jobDetails.keyword}". Artykuł powinien być zoptymalizowany pod SEO, zawierać nagłówki i być gotowy do publikacji.` }] });
+        
+        // =================================================================
+        // NOWY, ZAAWANSOWANY PROMPT DO GENEROWANIA ARTYKUŁU
+        // =================================================================
+        const articlePrompt = `
+[Twoja Rola]
+Jesteś doświadczonym polskim blogerem i copywriterem. Twoim zadaniem jest stworzenie tekstu, który jest nie do odróżnienia od tekstu napisanego przez człowieka. Piszesz z pasją, swobodą i doskonałym wyczuciem języka.
+
+[Zadanie]
+Napisz zoptymalizowany pod SEO artykuł na bloga na temat: "${jobDetails.keyword}".
+
+[Kluczowe Zasady Stylu i Języka]
+1.  **Naturalność i Płynność:** Pisz naturalnie, swobodnie, używając języka potocznego, idiomów i zróżnicowanej długości zdań. Unikaj sztywnych, korporacyjnych sformułowań, powtórzeń i nienaturalnie brzmiących fraz, aby tekst był odporny na wykrywacze AI.
+2.  **Logiczna Spójność:** Dbaj o płynne przejścia między akapitami.
+3.  **Myślniki (BARDZO WAŻNE):** Do tworzenia myślników i wtrąceń używaj WYŁĄCZNIE prostego myślnika (znaku minusa "-"), a nie długiej pauzy ("—"). Jeśli w tekście pojawi się potrzeba użycia pauzy, bezwzględnie zastosuj znak "-". Przykład: "To jest - mówiąc wprost - najlepsze rozwiązanie."
+4.  **Czystość Językowa:** Wyeliminuj wszelkie błędy, kalki składniowe i nienaturalne powtórzenia.
+5.  **Struktura:** Artykuł musi być zoptymalizowany pod SEO i zawierać logicznie rozmieszczone nagłówki.
+`;
+
+        const completion = await openai.chat.completions.create({
+            model: "gpt-4-turbo-preview",
+            messages: [{ role: "user", content: articlePrompt }]
+        });
         const articleContent = completion.choices[0].message.content;
         const articleTitle = jobDetails.keyword;
 
         let featuredMediaId = null;
         try {
             console.log(`[Executor] Generating featured image for: "${jobDetails.keyword}"`);
-            const imagePrompt = `Profesjonalne, realistyczne zdjęcie przedstawiające: ${jobDetails.keyword}. Wykonane aparatem DSLR z obiektywem 50mm, f/1.8. Naturalne oświetlenie, realistyczna paleta kolorów, bez nadmiernej saturacji. Zdjęcie ma wyglądać autentycznie. Unikaj stylu cyfrowej ilustracji, malarstwa czy grafiki komputerowej.`;
+            const imagePrompt = `Profesjonalne, realistyczne zdjęcie przedstawiające: ${jobDetails.keyword}. Wykonane aparatem DSLR z obiektywem 50mm, f/1.8. Naturalne oświetlenie, realistyczna paleta kolorów, bez nadmiernej saturacji. Zdjęcie ma wyglądać na autentyczne. Unikaj stylu cyfrowej ilustracji, malarstwa czy grafiki komputerowej.`;
             
             const imageResponse = await openai.images.generate({ model: "dall-e-3", prompt: imagePrompt, n: 1, size: "1024x1024", response_format: "url" });
             
@@ -101,20 +123,17 @@ async function runExecutor() {
             const mediaUrl = `${jobDetails.wp_url.replace(/\/$/, '')}/wp-json/wp/v2/media`;
             const credentials = Buffer.from(`${jobDetails.wp_user}:${jobDetails.wp_password}`).toString('base64');
 
-            // =================================================================
-            // ZMIANA: Tworzymy "bezpieczną" nazwę pliku, usuwając niedozwolone znaki
-            // =================================================================
             const safeFilename = jobDetails.keyword
                 .toLowerCase()
-                .replace(/\s+/g, '-') // Zamień spacje na myślniki
-                .replace(/[^a-z0-9-]/g, '') // Usuń wszystko, co nie jest literą, cyfrą lub myślnikiem
+                .replace(/\s+/g, '-')
+                .replace(/[^a-z0-9-]/g, '')
                 + '.png';
 
             const mediaUploadResponse = await axios.post(mediaUrl, imageBuffer, { 
                 headers: { 
                     'Authorization': `Basic ${credentials}`, 
                     'Content-Type': 'image/png', 
-                    'Content-Disposition': `attachment; filename="${safeFilename}"` // Używamy bezpiecznej nazwy
+                    'Content-Disposition': `attachment; filename="${safeFilename}"`
                 } 
             });
 
