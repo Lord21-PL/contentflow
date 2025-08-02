@@ -1,14 +1,24 @@
 const db = require('../db');
 const OpenAI = require('openai');
 const axios = require('axios');
+// =================================================================
+// NOWOŚĆ: Importujemy bibliotekę Replicate
+// =================================================================
+const Replicate = require('replicate');
 
 const MAX_RETRIES = 3;
 
+// Inicjalizacja Replicate (jeśli klucz jest dostępny)
+const replicate = process.env.REPLICATE_API_TOKEN
+    ? new Replicate({ auth: process.env.REPLICATE_API_TOKEN })
+    : null;
+
 async function getWordPressCategories(jobDetails) {
+    // ... (ta funkcja pozostaje bez zmian)
     const { wp_url, wp_user, wp_password } = jobDetails;
     const categoriesUrl = `${wp_url.replace(/\/$/, '')}/wp-json/wp/v2/categories?per_page=100`;
     const credentials = Buffer.from(`${wp_user}:${wp_password}`).toString('base64');
-    
+
     try {
         console.log('[Executor] Fetching categories from WordPress...');
         const response = await axios.get(categoriesUrl, {
@@ -22,10 +32,11 @@ async function getWordPressCategories(jobDetails) {
 }
 
 async function findBestCategoryId(keyword, categories, openai) {
+    // ... (ta funkcja pozostaje bez zmian)
     if (categories.length === 0) {
         return 0;
     }
-    
+
     const prompt = `
         Na podstawie słowa kluczowego: "${keyword}"
         Wybierz JEDNĄ, najbardziej pasującą kategorię z poniższej listy.
@@ -50,7 +61,7 @@ async function findBestCategoryId(keyword, categories, openai) {
             console.error(`[Executor] AI returned a non-numeric category ID: "${responseText}". Defaulting to 0.`);
             return 0;
         }
-        
+
         console.log(`[Executor] AI chose category ID: ${categoryId}`);
         return categoryId;
 
@@ -75,19 +86,15 @@ async function runExecutor() {
         jobId = jobResult.rows[0].id;
         await client.query("UPDATE scheduled_posts SET status = 'processing' WHERE id = $1", [jobId]);
         await client.query('COMMIT');
-        
+
         const fullJobDetailsResult = await client.query(`SELECT p.wp_url, p.wp_user, p.wp_password, k.keyword FROM scheduled_posts sp JOIN projects p ON sp.project_id = p.id JOIN keywords k ON sp.keyword_id = k.id WHERE sp.id = $1`, [jobId]);
         const jobDetails = fullJobDetailsResult.rows[0];
-        
+
         const apiKey = process.env.OPENAI_API_KEY;
         if (!apiKey) throw new Error("Zmienna środowiskowa OPENAI_API_KEY nie jest ustawiona!");
         const openai = new OpenAI({ apiKey: apiKey });
 
         console.log(`[Executor] Generating content for keyword: "${jobDetails.keyword}"`);
-        
-        // =================================================================
-        // NOWY, ZAAWANSOWANY PROMPT DO GENEROWANIA ARTYKUŁU
-        // =================================================================
         const articlePrompt = `
 [Twoja Rola]
 Jesteś doświadczonym polskim blogerem i copywriterem. Twoim zadaniem jest stworzenie tekstu, który jest nie do odróżnienia od tekstu napisanego przez człowieka. Piszesz z pasją, swobodą i doskonałym wyczuciem języka.
@@ -102,7 +109,6 @@ Napisz zoptymalizowany pod SEO artykuł na bloga na temat: "${jobDetails.keyword
 4.  **Czystość Językowa:** Wyeliminuj wszelkie błędy, kalki składniowe i nienaturalne powtórzenia.
 5.  **Struktura:** Artykuł musi być zoptymalizowany pod SEO i zawierać logicznie rozmieszczone nagłówki.
 `;
-
         const completion = await openai.chat.completions.create({
             model: "gpt-4-turbo-preview",
             messages: [{ role: "user", content: articlePrompt }]
@@ -112,12 +118,33 @@ Napisz zoptymalizowany pod SEO artykuł na bloga na temat: "${jobDetails.keyword
 
         let featuredMediaId = null;
         try {
-            console.log(`[Executor] Generating featured image for: "${jobDetails.keyword}"`);
-            const imagePrompt = `Profesjonalne, realistyczne zdjęcie przedstawiające: ${jobDetails.keyword}. Wykonane aparatem DSLR z obiektywem 50mm, f/1.8. Naturalne oświetlenie, realistyczna paleta kolorów, bez nadmiernej saturacji. Zdjęcie ma wyglądać na autentyczne. Unikaj stylu cyfrowej ilustracji, malarstwa czy grafiki komputerowej.`;
-            
-            const imageResponse = await openai.images.generate({ model: "dall-e-3", prompt: imagePrompt, n: 1, size: "1024x1024", response_format: "url" });
-            
-            const imageUrl = imageResponse.data[0].url;
+            // =================================================================
+            // ZMIANA: Cała logika generowania obrazu jest teraz oparta na Replicate
+            // =================================================================
+            if (!replicate) {
+                throw new Error("Zmienna środowiskowa REPLICATE_API_TOKEN nie jest ustawiona!");
+            }
+
+            console.log(`[Executor] Generating featured image for: "${jobDetails.keyword}" with Replicate FLUX.1 Pro...`);
+
+            const imagePrompt = `photograph of ${jobDetails.keyword}, 8k, cinematic, photorealistic, detailed`;
+
+            const output = await replicate.run(
+                "black-forest-labs/flux-pro:2a64785ad619f03a57a6b4151b384102409415a10a312b3c374a64945a254043",
+                {
+                    input: {
+                        prompt: imagePrompt,
+                        width: 1024,
+                        height: 1024,
+                    }
+                }
+            );
+
+            const imageUrl = output[0];
+            if (!imageUrl) {
+                throw new Error("Replicate did not return an image URL.");
+            }
+
             const imageBufferResponse = await axios.get(imageUrl, { responseType: 'arraybuffer' });
             const imageBuffer = Buffer.from(imageBufferResponse.data, 'binary');
             const mediaUrl = `${jobDetails.wp_url.replace(/\/$/, '')}/wp-json/wp/v2/media`;
@@ -129,12 +156,12 @@ Napisz zoptymalizowany pod SEO artykuł na bloga na temat: "${jobDetails.keyword
                 .replace(/[^a-z0-9-]/g, '')
                 + '.png';
 
-            const mediaUploadResponse = await axios.post(mediaUrl, imageBuffer, { 
-                headers: { 
-                    'Authorization': `Basic ${credentials}`, 
-                    'Content-Type': 'image/png', 
+            const mediaUploadResponse = await axios.post(mediaUrl, imageBuffer, {
+                headers: {
+                    'Authorization': `Basic ${credentials}`,
+                    'Content-Type': 'image/png',
                     'Content-Disposition': `attachment; filename="${safeFilename}"`
-                } 
+                }
             });
 
             featuredMediaId = mediaUploadResponse.data.id;
@@ -163,7 +190,7 @@ Napisz zoptymalizowany pod SEO artykuł na bloga na temat: "${jobDetails.keyword
         } else {
             console.log('[Executor] No suitable category found. Posting as uncategorized.');
         }
-        
+
         const credentials = Buffer.from(`${jobDetails.wp_user}:${jobDetails.wp_password}`).toString('base64');
         const response = await axios.post(wpUrl, postPayload, { headers: { 'Authorization': `Basic ${credentials}`, 'Content-Type': 'application/json' } });
         const postUrl = response.data.link;
