@@ -1,22 +1,26 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-// =================================================================
-// KRYTYCZNA POPRAWKA: Poprawiamy wielkość liter w nazwie pliku
-// =================================================================
-const { runExecutor } = require('../services/cronWorker'); // Zmieniono 'cronworker' na 'cronWorker'
+const { runExecutor } = require('../services/cronWorker');
 
-// Middleware do zabezpieczenia cron joba
+// =================================================================
+// MODYFIKACJA: Ulepszamy middleware, aby działał z nagłówkiem ORAZ z adresem URL
+// =================================================================
 function checkCronSecret(req, res, next) {
-    const cronSecret = req.header('X-Cron-Secret');
-    if (cronSecret === process.env.CRON_SECRET) {
+    const secretFromHeader = req.header('X-Cron-Secret'); // Dla cron-jobs.org
+    const secretFromQuery = req.query.secret;             // Dla naszych testów w przeglądarce
+
+    // Sprawdzamy, czy sekret zgadza się w którymkolwiek z tych miejsc
+    if ((secretFromHeader && secretFromHeader === process.env.CRON_SECRET) ||
+        (secretFromQuery && secretFromQuery === process.env.CRON_SECRET)) {
         next();
     } else {
+        console.warn('[API] Unauthorized attempt to access a cron endpoint via cron.js.');
         res.status(401).send('Unauthorized');
     }
 }
 
-// Funkcja pomocnicza do generowania losowej liczby w zakresie
+// Funkcja pomocnicza do generowania losowej liczby w zakresie (bez zmian)
 function getRandomInt(min, max) {
     min = Math.ceil(min);
     max = Math.floor(max);
@@ -69,7 +73,7 @@ router.post('/plan', checkCronSecret, async (req, res) => {
 });
 
 
-// TRASA #2: EXECUTOR (bez zmian w logice, tylko w imporcie)
+// TRASA #2: EXECUTOR (bez zmian)
 router.post('/execute', checkCronSecret, (req, res) => {
     console.log('[Executor Trigger] Received request. Starting worker logic in the background.');
 
@@ -79,5 +83,20 @@ router.post('/execute', checkCronSecret, (req, res) => {
 
     res.status(202).send('Executor task accepted and is running in the background.');
 });
+
+
+// =================================================================
+// NOWY KOD: TESTOWY ENDPOINT DO NATYCHMIASTOWEGO URUCHOMIENIA WORKERA
+// =================================================================
+router.get('/test-executor', checkCronSecret, (req, res) => {
+    console.log('[API] /test-executor MANUAL TRIGGER hit with correct secret.');
+    res.status(200).send('OK. Executor task started in the background. Check logs for progress.');
+
+    // Uruchamiamy logikę workera "w tle", aby nie blokować odpowiedzi HTTP
+    runExecutor().catch(error => {
+        console.error('[API] CRITICAL ERROR during manual /test-executor run:', error);
+    });
+});
+
 
 module.exports = router;
