@@ -1,6 +1,6 @@
 const db = require('../db');
 const OpenAI = require('openai');
-const axios = require('axios');
+const axios =require('axios');
 const Replicate = require('replicate');
 
 const MAX_RETRIES = 3;
@@ -120,9 +120,6 @@ Napisz zoptymalizowany pod SEO artykuł na bloga na temat: "${jobDetails.keyword
 
             const imagePrompt = `photograph of ${jobDetails.keyword}, 8k, cinematic, photorealistic, detailed`;
 
-            // =================================================================
-            // ZMIANA: Używamy teraz prostszej i nowszej nazwy modelu, którą znalazłeś!
-            // =================================================================
             const output = await replicate.run(
                 "black-forest-labs/flux-1.1-pro",
                 {
@@ -134,7 +131,12 @@ Napisz zoptymalizowany pod SEO artykuł na bloga na temat: "${jobDetails.keyword
                 }
             );
 
-            const imageUrl = output[0];
+            // =================================================================
+            // ZMIANA: Poprawiona logika obsługi wyniku z Replicate
+            // Jeśli output jest tablicą, bierzemy pierwszy element. Jeśli nie, bierzemy go w całości.
+            // =================================================================
+            const imageUrl = Array.isArray(output) ? output[0] : output;
+
             if (!imageUrl) {
                 throw new Error("Replicate did not return an image URL.");
             }
