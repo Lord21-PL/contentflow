@@ -1,20 +1,15 @@
 const db = require('../db');
 const OpenAI = require('openai');
 const axios = require('axios');
-// =================================================================
-// NOWOŚĆ: Importujemy bibliotekę Replicate
-// =================================================================
 const Replicate = require('replicate');
 
 const MAX_RETRIES = 3;
 
-// Inicjalizacja Replicate (jeśli klucz jest dostępny)
 const replicate = process.env.REPLICATE_API_TOKEN
     ? new Replicate({ auth: process.env.REPLICATE_API_TOKEN })
     : null;
 
 async function getWordPressCategories(jobDetails) {
-    // ... (ta funkcja pozostaje bez zmian)
     const { wp_url, wp_user, wp_password } = jobDetails;
     const categoriesUrl = `${wp_url.replace(/\/$/, '')}/wp-json/wp/v2/categories?per_page=100`;
     const credentials = Buffer.from(`${wp_user}:${wp_password}`).toString('base64');
@@ -32,7 +27,6 @@ async function getWordPressCategories(jobDetails) {
 }
 
 async function findBestCategoryId(keyword, categories, openai) {
-    // ... (ta funkcja pozostaje bez zmian)
     if (categories.length === 0) {
         return 0;
     }
@@ -118,9 +112,6 @@ Napisz zoptymalizowany pod SEO artykuł na bloga na temat: "${jobDetails.keyword
 
         let featuredMediaId = null;
         try {
-            // =================================================================
-            // ZMIANA: Cała logika generowania obrazu jest teraz oparta na Replicate
-            // =================================================================
             if (!replicate) {
                 throw new Error("Zmienna środowiskowa REPLICATE_API_TOKEN nie jest ustawiona!");
             }
@@ -129,8 +120,11 @@ Napisz zoptymalizowany pod SEO artykuł na bloga na temat: "${jobDetails.keyword
 
             const imagePrompt = `photograph of ${jobDetails.keyword}, 8k, cinematic, photorealistic, detailed`;
 
+            // =================================================================
+            // ZMIANA: Używamy teraz prostszej i nowszej nazwy modelu, którą znalazłeś!
+            // =================================================================
             const output = await replicate.run(
-                "black-forest-labs/flux-pro:2a64785ad619f03a57a6b4151b384102409415a10a312b3c374a64945a254043",
+                "black-forest-labs/flux-1.1-pro",
                 {
                     input: {
                         prompt: imagePrompt,
