@@ -118,7 +118,7 @@ Napisz zoptymalizowany pod SEO artykuł na bloga na temat: "${jobDetails.keyword
 
             console.log(`[Executor] Generating featured image for: "${jobDetails.keyword}" with Replicate FLUX.1 Pro...`);
 
-            const imagePrompt = `photograph of ${jobDetails.keyword}, 8k, cinematic, photorealistic, detailed`;
+            const imagePrompt = `Profesjonalne, realistyczne zdjęcie przedstawiające: ${jobDetails.keyword}. Wykonane aparatem DSLR z obiektywem 50mm, f/1.8. Naturalne oświetlenie, realistyczna paleta kolorów, bez nadmiernej saturacji. Zdjęcie ma wyglądać na autentyczne. Unikaj stylu cyfrowej ilustracji, malarstwa czy grafiki komputerowej.`;
 
             const output = await replicate.run(
                 "black-forest-labs/flux-1.1-pro",
