@@ -180,4 +180,70 @@ router.post('/:projectId/keywords', async (req, res) => {
     }
 });
 
+// Eksport wszystkich słów kluczowych z projektu do CSV
+router.get('/:projectId/keywords/export', async (req, res) => {
+    const { projectId } = req.params;
+    
+    try {
+        // Pobierz informacje o projekcie
+        const projectResult = await db.query('SELECT name FROM projects WHERE id = $1', [projectId]);
+        if (projectResult.rows.length === 0) {
+            return res.status(404).send('Project not found');
+        }
+        const projectName = projectResult.rows[0].name;
+        
+        // Pobierz wszystkie słowa kluczowe z informacją o użyciu
+        const keywordsResult = await db.query(`
+            SELECT 
+                k.keyword,
+                k.language,
+                k.title,
+                k.category,
+                k.created_at,
+                CASE 
+                    WHEN sp.keyword_id IS NOT NULL THEN 'used' 
+                    ELSE 'unused' 
+                END as usage_status,
+                sp.publish_at,
+                sp.status as post_status,
+                sp.wordpress_post_url
+            FROM keywords k
+            LEFT JOIN scheduled_posts sp ON k.id = sp.keyword_id AND sp.status = 'completed'
+            WHERE k.project_id = $1
+            ORDER BY k.created_at DESC
+        `, [projectId]);
+        
+        // Przygotuj CSV header
+        const csvHeader = 'keyword,language,title,category,created_at,usage_status,publish_at,post_status,wordpress_post_url\n';
+        
+        // Konwertuj dane do CSV
+        const csvData = keywordsResult.rows.map(row => {
+            return [
+                `"${row.keyword || ''}"`,
+                `"${row.language || ''}"`,
+                `"${row.title || ''}"`,
+                `"${row.category || ''}"`,
+                `"${row.created_at ? row.created_at.toISOString() : ''}"`,
+                `"${row.usage_status}"`,
+                `"${row.publish_at ? row.publish_at.toISOString() : ''}"`,
+                `"${row.post_status || ''}"`,
+                `"${row.wordpress_post_url || ''}"`
+            ].join(',');
+        }).join('\n');
+        
+        const csvContent = csvHeader + csvData;
+        
+        // Ustaw headers dla pobierania pliku
+        const fileName = `keywords_${projectName.replace(/[^a-zA-Z0-9]/g, '_')}_${new Date().toISOString().split('T')[0]}.csv`;
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+        res.setHeader('Content-Length', Buffer.byteLength(csvContent, 'utf8'));
+        
+        res.send(csvContent);
+    } catch (error) {
+        console.error('Error exporting keywords:', error);
+        res.status(500).send('Server error');
+    }
+});
+
 module.exports = router;

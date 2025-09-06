@@ -99,6 +99,40 @@ function ProjectDetail() {
 
     const areAllKeywordsSelected = project.keywords && project.keywords.length > 0 && selectedKeywords.size === project.keywords.length;
 
+    const handleExportKeywords = async () => {
+        try {
+            const response = await api.get(`/projects/${id}/keywords/export`, {
+                responseType: 'blob'
+            });
+            
+            // Utwórz URL dla pliku
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            
+            // Utwórz link do pobrania
+            const link = document.createElement('a');
+            link.href = url;
+            
+            // Pobierz nazwę pliku z nagłówka lub użyj domyślnej
+            const disposition = response.headers['content-disposition'];
+            let filename = `keywords_export_${new Date().toISOString().split('T')[0]}.csv`;
+            if (disposition) {
+                const filenameMatch = disposition.match(/filename="?(.+)"?/);
+                if (filenameMatch) {
+                    filename = filenameMatch[1];
+                }
+            }
+            
+            link.setAttribute('download', filename);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(url);
+        } catch (error) {
+            console.error("Error exporting keywords:", error);
+            alert('Failed to export keywords.');
+        }
+    };
+
     return (
         <div style={{ fontFamily: 'sans-serif', maxWidth: '1200px', margin: 'auto', padding: '20px' }}>
             <Link to="/">← Back to Dashboard</Link>
@@ -124,11 +158,26 @@ function ProjectDetail() {
                 <div style={{ flex: 1 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <h3>Keywords ({project.keywords && project.keywords.length})</h3>
-                        {selectedKeywords.size > 0 && (
-                            <button onClick={handleBulkDelete} style={{ background: '#ff4d4d', color: 'white', border: 'none', padding: '8px 12px', borderRadius: '4px', cursor: 'pointer' }}>
-                                Delete Selected ({selectedKeywords.size})
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                            <button 
+                                onClick={handleExportKeywords} 
+                                style={{ 
+                                    background: '#28a745', 
+                                    color: 'white', 
+                                    border: 'none', 
+                                    padding: '8px 12px', 
+                                    borderRadius: '4px', 
+                                    cursor: 'pointer' 
+                                }}
+                            >
+                                Export All Keywords
                             </button>
-                        )}
+                            {selectedKeywords.size > 0 && (
+                                <button onClick={handleBulkDelete} style={{ background: '#ff4d4d', color: 'white', border: 'none', padding: '8px 12px', borderRadius: '4px', cursor: 'pointer' }}>
+                                    Delete Selected ({selectedKeywords.size})
+                                </button>
+                            )}
+                        </div>
                     </div>
                     <ul style={{ listStyle: 'none', padding: 0, maxHeight: '400px', overflowY: 'auto', border: '1px solid #eee' }}>
                         {project.keywords && project.keywords.length > 0 && (
