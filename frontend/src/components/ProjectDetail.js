@@ -102,7 +102,12 @@ function ProjectDetail() {
     return (
         <div style={{ fontFamily: 'sans-serif', maxWidth: '1200px', margin: 'auto', padding: '20px' }}>
             <Link to="/">← Back to Dashboard</Link>
-            <h2 style={{ borderBottom: '2px solid #eee', paddingBottom: '10px' }}>{project.name}</h2>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #eee', paddingBottom: '10px', marginBottom: '20px' }}>
+                <h2 style={{ margin: 0 }}>{project.name}</h2>
+                <div style={{ fontSize: '1.1em', color: '#666' }}>
+                    Keywords: <strong>{project.used_keywords_count || 0}/{project.total_keywords_count || 0} used</strong>
+                </div>
+            </div>
             
             {/* ================================================================= */}
             {/* ZMIANA: Zmienione proporcje flex, aby dać więcej miejsca liście   */}

@@ -10,7 +10,15 @@ const upload = multer({ storage: multer.memoryStorage() });
 // Pobieranie wszystkich projektów
 router.get('/', async (req, res) => {
     try {
-        const result = await db.query('SELECT * FROM projects ORDER BY created_at DESC');
+        const result = await db.query(`
+            SELECT p.*, 
+                   COALESCE(p.used_keywords_count, 0) as used_keywords_count,
+                   COUNT(k.id) as total_keywords_count
+            FROM projects p 
+            LEFT JOIN keywords k ON p.id = k.project_id 
+            GROUP BY p.id 
+            ORDER BY p.created_at DESC
+        `);
         res.json(result.rows);
     } catch (error) {
         console.error(error);
@@ -36,7 +44,13 @@ router.post('/', async (req, res) => {
 // Pobieranie szczegółów jednego projektu (wraz z keywordami i postami)
 router.get('/:id', async (req, res) => {
     try {
-        const projectResult = await db.query('SELECT * FROM projects WHERE id = $1', [req.params.id]);
+        const projectResult = await db.query(`
+            SELECT p.*, 
+                   COALESCE(p.used_keywords_count, 0) as used_keywords_count,
+                   (SELECT COUNT(*) FROM keywords WHERE project_id = p.id) as total_keywords_count
+            FROM projects p 
+            WHERE p.id = $1
+        `, [req.params.id]);
         if (projectResult.rows.length === 0) {
             return res.status(404).send('Project not found');
         }

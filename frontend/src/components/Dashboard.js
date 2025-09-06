@@ -49,15 +49,20 @@ function Dashboard() {
                         <ul className="project-list">
                             {projects.map(project => (
                                 <li key={project.id}>
-                                    <Link to={`/project/${project.id}`}>{project.name}</Link>
-                                    {/* NOWY PRZYCISK USUWANIA */}
-                                    <button 
-                                        onClick={() => handleDeleteProject(project.id)}
-                                        className="btn btn-danger btn-sm"
-                                        style={{ marginLeft: '1rem' }}
-                                    >
-                                        Delete
-                                    </button>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <div>
+                                            <Link to={`/project/${project.id}`}>{project.name}</Link>
+                                            <div style={{ fontSize: '0.8em', color: '#666', marginTop: '4px' }}>
+                                                Keywords: {project.used_keywords_count || 0}/{project.total_keywords_count || 0} used
+                                            </div>
+                                        </div>
+                                        <button 
+                                            onClick={() => handleDeleteProject(project.id)}
+                                            className="btn btn-danger btn-sm"
+                                        >
+                                            Delete
+                                        </button>
+                                    </div>
                                 </li>
                             ))}
                         </ul>
